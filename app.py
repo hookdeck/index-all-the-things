@@ -1,12 +1,11 @@
 import os
-from io import BytesIO
+import urllib
 from urllib.parse import urlparse
 from flask import Flask, jsonify, request, render_template, redirect, url_for, flash
-import requests
-import replicate
 from dotenv import load_dotenv
 
 from lib.mongo import get_mongo_client
+from lib.processors import get_processor
 
 load_dotenv()
 
@@ -14,8 +13,6 @@ app = Flask(
     __name__, static_url_path="", template_folder="templates", static_folder="static"
 )
 app.secret_key = os.getenv("SECRET_KEY")
-
-AUDIO_WEBHOOK_URL = os.getenv("AUDIO_WEBHOOK_URL")
 
 
 @app.route("/")
@@ -59,54 +56,33 @@ def process():
         flash("URL has already been indexed")
         return redirect(url_for("index"))
 
-    response = requests.get(url)
-    content_type = response.headers["Content-Type"]
-    content = response.content
-    # print(f"Content Type: {content_type}")
+    req = urllib.request.Request(url, method="HEAD")
+    fetch = urllib.request.urlopen(req)
 
-    if "audio/" not in content_type:
+    if fetch.status != 200:
+        flash("URL is not reachable")
+        return redirect(url_for("index"))
+
+    content_length = fetch.headers["Content-Length"]
+    content_type = fetch.headers["Content-Type"]
+
+    processor = get_processor(content_type)
+
+    if processor is None:
         flash('Unsupported content type "' + content_type + '"')
         return redirect(url_for("index"))
 
     client["iaat"]["indexes"].insert_one(
-        {"url": url, "content_type": content_type, "status": "SUBMITTED"}
+        {
+            "url": url,
+            "content_type": content_type,
+            "content_length": content_length,
+            "status": "SUBMITTED",
+        }
     )
 
-    buffer = BytesIO(content)
+    prediction = processor.process(url)
 
-    model = replicate.models.get("openai/whisper")
-    version = model.versions.get(
-        "cdd97b257f93cb89dede1c7584e3f3dfc969571b357dbcee08e793740bedd854"
-    )
-    # model = "openai/whisper"
-    # version = "cdd97b257f93cb89dede1c7584e3f3dfc969571b357dbcee08e793740bedd854"
-    input = {
-        "audio": buffer,
-        "model": "large-v3",
-        "language": "auto",
-        "translate": False,
-        "temperature": 0,
-        "transcription": "plain text",
-        "suppress_tokens": "-1",
-        "logprob_threshold": -1,
-        "no_speech_threshold": 0.6,
-        "condition_on_previous_text": True,
-        "compression_ratio_threshold": 2.4,
-        "temperature_increment_on_fallback": 0.2,
-    }
-
-    # sync
-    # output = replicate.run(
-    #     model + ":" + version,
-    #     input=input,
-    # )
-
-    prediction = replicate.predictions.create(
-        version=version,
-        input=input,
-        webhook=AUDIO_WEBHOOK_URL,
-        webhook_events_filter=["completed"],
-    )
     # print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
     # print(prediction)
     # print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
@@ -138,8 +114,8 @@ def process():
     return redirect(url_for("index"))
 
 
-@app.route("/webhooks/audio", methods=["POST"])
-def audio_webhook():
+@app.route("/webhooks", methods=["POST"])
+def webhook():
     payload = request.json
     # print(payload)
 

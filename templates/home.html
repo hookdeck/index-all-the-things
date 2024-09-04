@@ -45,6 +45,27 @@
     border-radius: 2px;
     font-size: 0.7em;
   }
+
+  #examples {
+    margin-top: 3em;
+    padding: 0.5em;
+    background-color: #ebebeb;
+  }
+
+  #examples ul {
+    display: flex;
+    text-align: left;
+    list-style: none;
+    padding: 0;
+  }
+
+  #examples li {
+    margin: 0 1em;
+    cursor: pointer;
+  }
+  #examples li:hover {
+    text-decoration: underline;
+  }
 </style>
 <script>
   document.addEventListener('DOMContentLoaded', function() {
@@ -60,6 +81,38 @@
 
       submitButton.disabled = true;
       submitButton.innerText = 'Submitting...';
+    });
+  });
+
+  const EXAMPLES = [
+    {
+      "name": "Bruce (mp3)",
+      "url": "https://replicate.delivery/pbxt/KAX5G2BccyZabQssOPmBa9YnK6wkgstfXz3idL8CLKDXSkeB/bruce.mp3",
+    },
+    {
+      "name": "Other 1 (wav)",
+      "url": "https://replicate.delivery/pbxt/KASkhrd696JJqYQcdHq8hSXV6deWYmfxa1yRQFH0iC3xIwVG/2086-149220-0033.wav",
+    },
+    {
+      "name": "Other 2 (wav)",
+      "url": "https://replicate.delivery/mgxm/e5159b1b-508a-4be4-b892-e1eb47850bdc/OSR_uk_000_0050_8k.wav",
+    }
+  ]
+
+  document.addEventListener('DOMContentLoaded', function() {
+    const examples = document.querySelector('#examples ul');
+    EXAMPLES.forEach(example => {
+      const li = document.createElement('li');
+      const a = document.createElement('span');
+      // a.href = example.url;
+      a.innerText = example.name;
+      li.appendChild(a);
+      examples.appendChild(li);
+
+      a.addEventListener('click', function() {
+        const input = document.querySelector('#submit_form input');
+        input.value = example.url;
+      });
     });
   });
 </script>
@@ -87,7 +140,7 @@
       </thead>
       <tbody>
     {% for index in indexes %}
-    <tr>
+    <tr data-url="{{ index.url }}">
       <td title="{{ index.url }}">{{ index.parsed_url.hostname }}</td>
       <td title="{{ index.parsed_url.path }}">...{{ index.parsed_url.last_part }}</td>
       <td>{{ index.content_type }}</td>
@@ -99,5 +152,9 @@
     <p>No indexes</p>
   {% endif %}
 </div>
+
+<div id="examples" class="container">
+  <h3>Examples</h3>
+  <ul></ul>
 </div>
 {% endblock %}
