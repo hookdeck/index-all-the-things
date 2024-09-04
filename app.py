@@ -26,7 +26,7 @@ def index():
 
     indexes = client["iaat"]["indexes"].find({})
     results = []
-    for idx, index in enumerate(indexes):
+    for _idx, index in enumerate(indexes):
         parse_result = urlparse(index["url"])
         parsed_url = {
             "netloc": parse_result.netloc,
@@ -40,7 +40,7 @@ def index():
         index["parsed_url"] = parsed_url
         results.append(index)
 
-    print(results)
+    # print(results)
 
     return render_template("home.html", indexes=results)
 
@@ -48,11 +48,6 @@ def index():
 @app.route("/process", methods=["POST"])
 def process():
     url = request.form["url"]
-
-    response = requests.get(url)
-    content_type = response.headers["Content-Type"]
-    content = response.content
-    print(f"Content Type: {content_type}")
 
     client = get_mongo_client()
     if client is None:
@@ -62,6 +57,15 @@ def process():
     exists = client["iaat"]["indexes"].find_one({"url": url})
     if exists is not None:
         flash("URL has already been indexed")
+        return redirect(url_for("index"))
+
+    response = requests.get(url)
+    content_type = response.headers["Content-Type"]
+    content = response.content
+    # print(f"Content Type: {content_type}")
+
+    if "audio/" not in content_type:
+        flash('Unsupported content type "' + content_type + '"')
         return redirect(url_for("index"))
 
     client["iaat"]["indexes"].insert_one(
@@ -103,7 +107,9 @@ def process():
         webhook=AUDIO_WEBHOOK_URL,
         webhook_events_filter=["completed"],
     )
-    print(prediction)
+    # print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
+    # print(prediction)
+    # print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
 
     client["iaat"]["indexes"].update_one(
         filter={"url": url},
@@ -111,12 +117,23 @@ def process():
             "$set": {
                 "status": "PROCESSING",
                 "replicate_id": prediction.id,
-                "replicate_request": prediction,
+                "replicate_request": {
+                    "model": prediction.model,
+                    "version": prediction.version,
+                    "status": prediction.status,
+                    "input": prediction.input,
+                    "logs": prediction.logs,
+                    "created_at": prediction.created_at,
+                    "urls": prediction.urls,
+                },
             }
         },
     )
 
-    flash("Processing URL: " + url + " with content type: " + content_type)
+    flash(
+        message="Processing: " + url + " with content type: " + content_type,
+        category="success",
+    )
 
     return redirect(url_for("index"))
 
@@ -124,7 +141,7 @@ def process():
 @app.route("/webhooks/audio", methods=["POST"])
 def audio_webhook():
     payload = request.json
-    print(payload)
+    # print(payload)
 
     client = get_mongo_client()
 
