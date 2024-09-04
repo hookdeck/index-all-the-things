@@ -1,0 +1,11 @@
+{% extends 'layout.html' %}
+
+{% block title %}Index a Thing{% endblock %}
+
+{% block content %}
+  <p>Enter the URL of the file to index</p>
+  <form action="/process" method="post">
+    <input type="text" name="url">
+    <button type="submit">Submit</button>
+  </form>
+{% endblock %}

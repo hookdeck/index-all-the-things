@@ -1,0 +1,75 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Local development environment
+.env
+
+# IDE files
+.vscode/
+.idea/
+
+# Dependency directories
+.venv/
+venv/
+env/
+env.bak/
+
+# Compiled Python files
+*.pyc
+*.pyo
+*.pyd
+
+# Logs and temporary files
+*.log
+*.swp
+*.swo
+*.tmp
+
+# Database files
+*.db
+*.sqlite3
+
+# Generated files
+/generated/
+
+# Environment-specific files
+.env
+.env.*
+
+# Ignore any file or directory named "secret"
+secret
+
+# Ignore any file or directory named "config"
+config
+
+# Ignore any file or directory named "credentials"
+credentials
+
+# Ignore any file or directory named "keys"
+keys
+
+# Ignore any file or directory named "uploads"
+uploads
+
+# Ignore any file or directory named "media"
+media
+
+# Ignore any file or directory named "logs"
+logs
+
+# Ignore any file or directory named "tmp"
+tmp
+
+# Ignore any file or directory named "cache"
+cache
+
+# Ignore any file or directory named "dist"
+dist
+
+# Ignore any file or directory named "build"
+build
+
+# Ignore any file or directory named "node_modules"
+node_modules/
