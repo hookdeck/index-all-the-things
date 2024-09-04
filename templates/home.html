@@ -23,17 +23,52 @@
     cursor: pointer;
   }
 
+  form button:disabled {
+    background-color: #ccc;
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+
   table {
     width: 100%;
+    text-align: left;
+  }
+
+  td {
+    padding: 5px;
+  }
+
+  td .status {
+    text-align: center;
+    border: 1px solid #ccc;
+    padding: 2px;
+    border-radius: 2px;
+    font-size: 0.7em;
   }
 </style>
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    const form = document.querySelector('#submit_form');
+    const submitButton = form.querySelector('#submit_form button');
+
+    form.addEventListener('submit', function(event) {
+      const url = form.querySelector('input').value;
+      if (!url) {
+        event.preventDefault();
+        return;
+      }
+
+      submitButton.disabled = true;
+      submitButton.innerText = 'Submitting...';
+    });
+  });
+</script>
 {% endblock %}
 
 {% block content %}
 <div>
-  <p>Enter the URL of the file to index</p>
-  <form action="/process" method="post">
-    <input required type="text" name="url">
+  <form action="/process" method="post" id="submit_form">
+    <input required type="text" name="url" placeholder="Enter the URL of a file to index">
     <button type="submit">Submit</button>
   </form>
 </div>
@@ -53,11 +88,10 @@
       <tbody>
     {% for index in indexes %}
     <tr>
-      {# <td title="{{ index.url }}">{{ index.url | replace("https://", "") | truncate(50, False, '...', 0) }}</td>#}
       <td title="{{ index.url }}">{{ index.parsed_url.hostname }}</td>
       <td title="{{ index.parsed_url.path }}">...{{ index.parsed_url.last_part }}</td>
       <td>{{ index.content_type }}</td>
-      <td>{{ index.status }}</td>
+      <td><span class="status">{{ index.status }}</span></td>
     </tr>
     {% endfor %}
   </table>
