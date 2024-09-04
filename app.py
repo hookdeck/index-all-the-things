@@ -56,6 +56,8 @@ def process():
         flash("URL has already been indexed")
         return redirect(url_for("index"))
 
+    # Only do a HEAD request to avoid downloading the whole file
+    # This offloads the file downloading Replicate
     req = urllib.request.Request(url, method="HEAD")
     fetch = urllib.request.urlopen(req)
 

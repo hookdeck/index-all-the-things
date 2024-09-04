@@ -1,7 +1,5 @@
 {% extends 'layout.html' %}
 
-{% block title %}Index a Thing{% endblock %}
-
 {% block head %}
 <style>
   form input {
@@ -38,6 +36,12 @@
     padding: 5px;
   }
 
+  td.path {
+    display: flex;
+    align-items: end;
+    gap: 0.1em;
+  }
+
   td .status {
     text-align: center;
     border: 1px solid #ccc;
@@ -47,7 +51,7 @@
   }
 
   #examples {
-    margin-top: 3em;
+    margin-top: 4em;
     padding: 0.5em;
     background-color: #ebebeb;
   }
@@ -57,6 +61,7 @@
     text-align: left;
     list-style: none;
     padding: 0;
+    justify-content: center;
   }
 
   #examples li {
@@ -118,15 +123,17 @@
 </script>
 {% endblock %}
 
+{% block title %}Index a Thing{% endblock %}
+
 {% block content %}
-<div>
+<section>
   <form action="/process" method="post" id="submit_form">
     <input required type="text" name="url" placeholder="Enter the URL of a file to index">
     <button type="submit">Submit</button>
   </form>
-</div>
+</section>
 
-<div>
+<section>
   {% if indexes %}
     <h2>Indexes:</h2>
     <table>
@@ -135,6 +142,7 @@
           <th>Domain</th>
           <th>Path</th>
           <th>Content Type</th>
+          <th>Content Length</th>
           <th>Status</th>
         </tr>
       </thead>
@@ -142,8 +150,12 @@
     {% for index in indexes %}
     <tr data-url="{{ index.url }}">
       <td title="{{ index.url }}">{{ index.parsed_url.hostname }}</td>
-      <td title="{{ index.parsed_url.path }}">...{{ index.parsed_url.last_part }}</td>
+      <td class="path" title="{{ index.parsed_url.path }}">
+        <span>...{{ index.parsed_url.last_part }}</span>
+        <a href="{{ index.url }}" target="_blank"><img src="/images/external-link.svg" alt="external link" width="16" height="16" /></a>
+      </td>
       <td>{{ index.content_type }}</td>
+      <td>{{ index.content_length }}</td>
       <td><span class="status">{{ index.status }}</span></td>
     </tr>
     {% endfor %}
@@ -151,10 +163,10 @@
   {% else %}
     <p>No indexes</p>
   {% endif %}
-</div>
+</section>
 
-<div id="examples" class="container">
+<section id="examples">
   <h3>Examples</h3>
   <ul></ul>
-</div>
+</section>
 {% endblock %}
