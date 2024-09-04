@@ -2,10 +2,68 @@
 
 {% block title %}Index a Thing{% endblock %}
 
+{% block head %}
+<style>
+  form input {
+    padding: 5px;
+    width: 100%;
+    min-width: 800px;
+    max-width: 1200px;
+    font-size: 1.2em;
+    border-radius: 5px;
+  }
+
+  form button {
+    margin: 1em 0;
+    padding: 5px;
+    width: 100%;
+    max-width: 200px;
+    font-size: 1em;
+    border-radius: 5px;
+    cursor: pointer;
+  }
+
+  table {
+    width: 100%;
+  }
+</style>
+{% endblock %}
+
 {% block content %}
+<div>
   <p>Enter the URL of the file to index</p>
   <form action="/process" method="post">
-    <input type="text" name="url">
+    <input required type="text" name="url">
     <button type="submit">Submit</button>
   </form>
+</div>
+
+<div>
+  {% if indexes %}
+    <h2>Indexes:</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Domain</th>
+          <th>Path</th>
+          <th>Content Type</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+    {% for index in indexes %}
+    <tr>
+      {# <td title="{{ index.url }}">{{ index.url | replace("https://", "") | truncate(50, False, '...', 0) }}</td>#}
+      <td title="{{ index.url }}">{{ index.parsed_url.hostname }}</td>
+      <td title="{{ index.parsed_url.path }}">...{{ index.parsed_url.last_part }}</td>
+      <td>{{ index.content_type }}</td>
+      <td>{{ index.status }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+    <p>No indexes</p>
+  {% endif %}
+</div>
+</div>
 {% endblock %}

@@ -1,9 +1,12 @@
 import os
 from io import BytesIO
-from flask import Flask, request, render_template, redirect, url_for, flash
+from urllib.parse import urlparse
+from flask import Flask, jsonify, request, render_template, redirect, url_for, flash
 import requests
 import replicate
 from dotenv import load_dotenv
+
+from lib.mongo import get_mongo_client
 
 load_dotenv()
 
@@ -17,7 +20,29 @@ AUDIO_WEBHOOK_URL = os.getenv("AUDIO_WEBHOOK_URL")
 
 @app.route("/")
 def index():
-    return render_template("home.html")
+    client = get_mongo_client()
+    if client is None:
+        flash("Failed to connect to MongoDB")
+
+    indexes = client["iaat"]["indexes"].find({})
+    results = []
+    for idx, index in enumerate(indexes):
+        parse_result = urlparse(index["url"])
+        parsed_url = {
+            "netloc": parse_result.netloc,
+            "path": parse_result.path,
+            "params": parse_result.params,
+            "query": parse_result.query,
+            "fragment": parse_result.fragment,
+            "hostname": parse_result.hostname,
+            "last_part": parse_result.path.rstrip("/").split("/")[-1],
+        }
+        index["parsed_url"] = parsed_url
+        results.append(index)
+
+    print(results)
+
+    return render_template("home.html", indexes=results)
 
 
 @app.route("/process", methods=["POST"])
@@ -28,6 +53,20 @@ def process():
     content_type = response.headers["Content-Type"]
     content = response.content
     print(f"Content Type: {content_type}")
+
+    client = get_mongo_client()
+    if client is None:
+        flash("Failed to connect to MongoDB")
+        return redirect(url_for("index"))
+
+    exists = client["iaat"]["indexes"].find_one({"url": url})
+    if exists is not None:
+        flash("URL has already been indexed")
+        return redirect(url_for("index"))
+
+    client["iaat"]["indexes"].insert_one(
+        {"url": url, "content_type": content_type, "status": "SUBMITTED"}
+    )
 
     buffer = BytesIO(content)
 
@@ -66,12 +105,38 @@ def process():
     )
     print(prediction)
 
-    flash("Received URL: " + url + " with content type: " + content_type)
+    client["iaat"]["indexes"].update_one(
+        filter={"url": url},
+        update={
+            "$set": {
+                "status": "PROCESSING",
+                "replicate_id": prediction.id,
+                "replicate_request": prediction,
+            }
+        },
+    )
+
+    flash("Processing URL: " + url + " with content type: " + content_type)
 
     return redirect(url_for("index"))
 
 
 @app.route("/webhooks/audio", methods=["POST"])
 def audio_webhook():
-    print(request.json)
+    payload = request.json
+    print(payload)
+
+    client = get_mongo_client()
+
+    if client is None:
+        return jsonify({"error": "Database connection failed"}), 500
+
+    result = client["iaat"]["indexes"].update_one(
+        filter={"replicate_id": payload["id"]},
+        update={"$set": {"status": "PROCESSED", "replicate_response": payload}},
+    )
+
+    if result.modified_count == 0:
+        return jsonify({"error": "No document found"}), 500
+
     return "OK"
