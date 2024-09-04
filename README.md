@@ -1,5 +1,9 @@
 # Index All The Things!
 
+## How it works
+
+![Sequence Diagram](docs/sequence-diagram.png)
+
 ## TODO:
 
 - [x] Save each indexing request to MongoDB
