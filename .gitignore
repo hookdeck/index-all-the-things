@@ -3,9 +3,6 @@ __pycache__/
 *.py[cod]
 *$py.class
 
-# Local development environment
-.env
-
 # IDE files
 .vscode/
 .idea/
