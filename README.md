@@ -8,5 +8,5 @@
 
 - [x] Save each indexing request to MongoDB
 - [x] List existing indexing request from MongoDB, including the indexing status
-- [ ] Upon webhook callback, create a Vector indexing
+- [ ] Create a Vector indexing. This could be triggered via CDC.
 - [ ] Create some sort of search functionality using the Vector
