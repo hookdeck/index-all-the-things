@@ -119,7 +119,7 @@ def process():
 @app.route("/webhooks", methods=["POST"])
 def webhook():
     payload = request.json
-    # print(payload)
+    app.logger.debug("Payload recieved %s", payload)
 
     client = get_mongo_client()
 
@@ -131,7 +131,8 @@ def webhook():
         update={"$set": {"status": "PROCESSED", "replicate_response": payload}},
     )
 
-    if result.modified_count == 0:
+    if result.matched_count == 0:
+        app.logger.error("No document found for id %s", payload["id"])
         return jsonify({"error": "No document found"}), 500
 
     return "OK"
