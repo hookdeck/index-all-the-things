@@ -25,14 +25,14 @@
 {% block content %}
 <section>
   <form action="/search" method="post" id="submit_form">
-    <input required type="text" name="query" placeholder="Enter your search query">
+    <input required type="text" name="query" placeholder="Enter your search query" value="{{ query }}">
     <button type="submit">Submit</button>
   </form>
 </section>
 
 <section>
   {% if results %}
-    <h2>Results:</h2>
+    <h2>Results {% if query %}for "{{ query }}"{% endif %}:</h2>
     <table>
       <thead>
         <tr>

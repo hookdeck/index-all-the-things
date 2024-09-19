@@ -72,7 +72,7 @@ def search_post():
 
     app.logger.debug("Formatted search results", results)
 
-    return render_template("search.html", results=results)
+    return render_template("search.html", results=results, query=query)
 
 
 @app.route("/process", methods=["POST"])
@@ -117,10 +117,6 @@ def process():
     )
 
     prediction = processor.process(url)
-
-    # print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
-    # print(prediction)
-    # print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
 
     client[Config.DB_NAME][Config.COLLECTION_NAME].update_one(
         filter={"url": url},
