@@ -105,4 +105,6 @@ Navigate to `localhost:5000` within your web browser.
 
 ## Learn more
 
-- [Hookdeck docs](https://hookdeck.com/docs?ref=github-)
+- [Hookdeck docs](https://hookdeck.com/docs?ref=github-iatt)
+- [MongoDB Atlas docs](https://www.mongodb.com/docs/atlas/)
+- [Replicate docs](https://replicate.com/docs/)
