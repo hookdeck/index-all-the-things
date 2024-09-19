@@ -70,6 +70,7 @@ def search_post():
 
     results = format_results(results)
 
+    # TODO: look into warning logged here
     app.logger.debug("Formatted search results", results)
 
     return render_template("search.html", results=results, query=query)
