@@ -67,6 +67,15 @@ Run the following to create Hookdeck connections to receive webhooks from Replic
 poetry run python create-hookdeck-connections.py
 ```
 
+Run the following to create a Vector Index within MongoDB:
+
+> [!WARNING]
+> You may need some data within MongoDB before you can create the vector index.
+
+```sh
+poetry run python create-vector-index.py
+```
+
 ### Run the app
 
 Run the app:
