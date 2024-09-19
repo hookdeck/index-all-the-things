@@ -1,8 +1,14 @@
 # Index All The Things!
 
-Allows an asset with a URL to be analyzed and a textual and embedding representation stored in MongoDB.
+<p align="center">
+<img src="docs/att.png" height="200" />
+</p>
+
+A Python web application built on Flask that allows an asset with a URL to be analyzed and a textual and embedding representation stored in [MongoDB Atlas](https://www.mongodb.com/atlas).
 
 A vector search can then be performed on the embeddings.
+
+The application uses [Replicate](https://replicate.com) to run AI models and [Hookdeck](https://hookdeck.com?ref=github-iatt) to reliability receive asynchronous results from Replicate.
 
 At present the application supports analyzing audio assets and getting the transcribed contents. However, there is a framework in place to support other asset types such as text, HTML, images, and video
 
@@ -17,6 +23,7 @@ The following diagram shows the sequence of how assets are submitted within the 
 - A free [Hookdeck account](https://dashboard.hookdeck.com/signup?ref=github-iatt)
 - The [Hookdeck CLI installed](https://hookdeck.com/docs/cli?ref=github-iatt)
 - A trial [MongoDB Atlas account](https://www.mongodb.com/cloud/atlas/register)
+- A [Replicate account](https://replicate.com/signin)
 - [Python 3](https://www.python.org/downloads/)
 - [Poetry](https://python-poetry.org/docs/#installation) for package management
 
@@ -84,10 +91,18 @@ Run the app:
 poetry run python -m flask --app app --debug run
 ```
 
-Create a localtunnel:
+Create localtunnels to receive webhooks from the two Hookdeck Connections:
 
 ```sh
 hookdeck listen '*' 5000
 ```
 
 Navigate to `localhost:5000` within your web browser.
+
+![Index All The Things home page running in a web browser](docs/iatt-home.png)
+
+![Index All The Things search page with search result running in a web browser](docs/iatt-search.png)
+
+## Learn more
+
+- [Hookdeck docs](https://hookdeck.com/docs?ref=github-)
