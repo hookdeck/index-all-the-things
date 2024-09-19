@@ -8,15 +8,15 @@ At present the application supports analyzing audio assets and getting the trans
 
 ## How it works
 
-The following diagram shows the sequence of how assets are submitted within the Flask application and processed by Replicate, and the results sent via webhooks through Hookdeck.
+The following diagram shows the sequence of how assets are submitted within the Flask application and processed by Replicate, and the results sent via webhooks through Hookdeck back to the Flask application and stored in MongoDB.
 
-![Sequence Diagram](docs/sequence-diagram.png)
+![Index All The Things Sequence Diagram](docs/sequence-diagram.png)
 
 ## Prerequisites
 
 - A free [Hookdeck account](https://dashboard.hookdeck.com/signup?ref=github-iatt)
 - The [Hookdeck CLI installed](https://hookdeck.com/docs/cli?ref=github-iatt)
-- A trial [MongoDB Atlas account]()
+- A trial [MongoDB Atlas account](https://www.mongodb.com/cloud/atlas/register)
 - [Python 3](https://www.python.org/downloads/)
 - [Poetry](https://python-poetry.org/docs/#installation) for package management
 
