@@ -55,7 +55,11 @@
       justify-content: center;
       list-style: none;
       padding: 0;
-      gap: 10px;
+      gap: 30px;
+    }
+
+    .topnav a.current {
+      font-weight: bolder;
     }
 
     h2 {
@@ -136,8 +140,8 @@
 
       <nav class="topnav">
         <ul>
-          <li><a href="/">Index a Thing</a></li>
-          <li><a href="/search">Search for Things</a></li>
+            <li><a href="/" class="{{ 'current' if request.path == '/' else '' }}">Index a Thing</a></li>
+            <li><a href="/search" class="{{ 'current' if request.path == '/search' else '' }}">Search for Things</a></li>
         </ul>
       </nav>
     </div>

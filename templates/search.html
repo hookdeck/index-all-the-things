@@ -36,6 +36,7 @@
     <table>
       <thead>
         <tr>
+          <th>Score</th>
           <th>Domain</th>
           <th>Path</th>
           <th>Content Type</th>
@@ -46,6 +47,7 @@
       <tbody>
     {% for asset in results %}
     <tr data-url="{{ asset.url }}">
+      <td>{{ asset.score }}</td>
       <td title="{{ asset.url }}">{{ asset.parsed_url.hostname }}</td>
       <td class="path" title="{{ asset.parsed_url.path }}">
         <span>...{{ asset.parsed_url.last_part }}</span>
