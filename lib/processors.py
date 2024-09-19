@@ -1,8 +1,9 @@
-import os
 import replicate
 
+from config import Config
 
-def get_processor(
+
+def get_asset_processor(
     content_type,
 ):
     if "audio/" in content_type:
@@ -17,7 +18,7 @@ def get_processor(
 
 class AudioProcessor:
     def __init__(self):
-        self.WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+        self.WEBHOOK_URL = Config.AUDIO_WEBHOOK_URL
         self.model = replicate.models.get("openai/whisper")
         self.version = self.model.versions.get(
             "cdd97b257f93cb89dede1c7584e3f3dfc969571b357dbcee08e793740bedd854"

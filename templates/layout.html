@@ -17,6 +17,7 @@
     .container {
       text-align: center;
       padding: 3em;
+      max-width: 1200px;
     }
 
     section {
@@ -49,6 +50,14 @@
       text-decoration: underline;
     }
 
+    .topnav ul {
+      display: flex;
+      justify-content: center;
+      list-style: none;
+      padding: 0;
+      gap: 10px;
+    }
+
     h2 {
       margin-top: 3em;
     }
@@ -70,6 +79,47 @@
       color: white;
       background-color: green;
     }
+
+    form input {
+    padding: 5px;
+    width: 100%;
+    min-width: 800px;
+    max-width: 1200px;
+    font-size: 1.2em;
+    border-radius: 5px;
+  }
+
+  form button {
+    margin: 1em 0;
+    padding: 5px;
+    width: 100%;
+    max-width: 200px;
+    font-size: 1em;
+    border-radius: 5px;
+    cursor: pointer;
+  }
+
+  form button:disabled {
+    background-color: #ccc;
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+
+  table {
+    width: 100%;
+    text-align: left;
+  }
+
+  td {
+    padding: 5px;
+    vertical-align: top;
+  }
+
+  td.path {
+    display: flex;
+    align-items: end;
+    gap: 0.1em;
+  }
   </style>
   {% block head %}{% endblock %}
 </head>
@@ -83,6 +133,13 @@
       <a href="/">
         <h1>Index All The Things!</h1>
       </a>
+
+      <nav class="topnav">
+        <ul>
+          <li><a href="/">Index a Thing</a></li>
+          <li><a href="/search">Search for Things</a></li>
+        </ul>
+      </nav>
     </div>
 
     <h2>{% block title %}{% endblock %}</h2>

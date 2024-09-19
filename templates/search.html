@@ -1,0 +1,64 @@
+{% extends 'layout.html' %}
+
+{% block head %}
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    const form = document.querySelector('#submit_form');
+    const submitButton = form.querySelector('#submit_form button');
+
+    form.addEventListener('submit', function(event) {
+      const url = form.querySelector('input').value;
+      if (!url) {
+        event.preventDefault();
+        return;
+      }
+
+      submitButton.disabled = true;
+      submitButton.innerText = 'Submitting...';
+    });
+  });
+</script>
+{% endblock %}
+
+{% block title %}Search for Things{% endblock %}
+
+{% block content %}
+<section>
+  <form action="/search" method="post" id="submit_form">
+    <input required type="text" name="query" placeholder="Enter your search query">
+    <button type="submit">Submit</button>
+  </form>
+</section>
+
+<section>
+  {% if results %}
+    <h2>Results:</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Domain</th>
+          <th>Path</th>
+          <th>Content Type</th>
+          <th>Content Length</th>
+          <th>Text</th>
+        </tr>
+      </thead>
+      <tbody>
+    {% for asset in results %}
+    <tr data-url="{{ asset.url }}">
+      <td title="{{ asset.url }}">{{ asset.parsed_url.hostname }}</td>
+      <td class="path" title="{{ asset.parsed_url.path }}">
+        <span>...{{ asset.parsed_url.last_part }}</span>
+        <a href="{{ asset.url }}" target="_blank"><img src="/images/external-link.svg" alt="external link" width="16" height="16" /></a>
+      </td>
+      <td>{{ asset.content_type }}</td>
+      <td>{{ asset.content_length }}</td>
+      <td>{{ asset.text }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% elif results|d('', true) %}
+    <p>No Results</p>
+  {% endif %}
+</section>
+{% endblock %}

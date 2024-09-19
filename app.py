@@ -1,29 +1,22 @@
-import os
 import urllib
 from urllib.parse import urlparse
 from flask import Flask, jsonify, request, render_template, redirect, url_for, flash
-from dotenv import load_dotenv
+
+from config import Config
 
 from lib.mongo import get_mongo_client
-from lib.processors import get_processor
-
-load_dotenv()
+from lib.processors import get_asset_processor
+from lib.generators import get_embedding_generator, get_sync_embedding_generator
 
 app = Flask(
     __name__, static_url_path="", template_folder="templates", static_folder="static"
 )
-app.secret_key = os.getenv("SECRET_KEY")
+app.secret_key = Config.SECRET_KEY
 
 
-@app.route("/")
-def index():
-    client = get_mongo_client()
-    if client is None:
-        flash("Failed to connect to MongoDB")
-
-    indexes = client["iaat"]["indexes"].find({})
-    results = []
-    for _idx, index in enumerate(indexes):
+def format_results(results):
+    formatted_results = []
+    for _idx, index in enumerate(results):
         parse_result = urlparse(index["url"])
         parsed_url = {
             "netloc": parse_result.netloc,
@@ -35,11 +28,51 @@ def index():
             "last_part": parse_result.path.rstrip("/").split("/")[-1],
         }
         index["parsed_url"] = parsed_url
-        results.append(index)
+        formatted_results.append(index)
 
-    # print(results)
+    return formatted_results
+
+
+@app.route("/")
+def index():
+    client = get_mongo_client()
+    if client is None:
+        flash("Failed to connect to MongoDB")
+        return redirect(url_for("index"))
+
+    indexes = client[Config.DB_NAME][Config.COLLECTION_NAME].find({})
+    results = format_results(indexes)
+
+    app.logger.info("Homepage loading")
+    app.logger.debug(results)
 
     return render_template("home.html", indexes=results)
+
+
+@app.route("/search", methods=["GET"])
+def search():
+    return render_template("search.html", results=[])
+
+
+@app.route("/search", methods=["POST"])
+def search_post():
+    client = get_mongo_client()
+    if client is None:
+        flash("Failed to connect to MongoDB")
+        return redirect(url_for("index"))
+
+    query = request.form["query"]
+
+    app.logger.info("Query submitted")
+    app.logger.debug(query)
+
+    results = query_vector_search(query)
+
+    results = format_results(results)
+
+    app.logger.debug("Formatted search results", results)
+
+    return render_template("search.html", results=results)
 
 
 @app.route("/process", methods=["POST"])
@@ -51,7 +84,7 @@ def process():
         flash("Failed to connect to MongoDB")
         return redirect(url_for("index"))
 
-    exists = client["iaat"]["indexes"].find_one({"url": url})
+    exists = client[Config.DB_NAME][Config.COLLECTION_NAME].find_one({"url": url})
     if exists is not None:
         flash("URL has already been indexed")
         return redirect(url_for("index"))
@@ -68,13 +101,13 @@ def process():
     content_length = fetch.headers["Content-Length"]
     content_type = fetch.headers["Content-Type"]
 
-    processor = get_processor(content_type)
+    processor = get_asset_processor(content_type)
 
     if processor is None:
         flash('Unsupported content type "' + content_type + '"')
         return redirect(url_for("index"))
 
-    client["iaat"]["indexes"].insert_one(
+    client[Config.DB_NAME][Config.COLLECTION_NAME].insert_one(
         {
             "url": url,
             "content_type": content_type,
@@ -89,12 +122,12 @@ def process():
     # print(prediction)
     # print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>")
 
-    client["iaat"]["indexes"].update_one(
+    client[Config.DB_NAME][Config.COLLECTION_NAME].update_one(
         filter={"url": url},
         update={
             "$set": {
                 "status": "PROCESSING",
-                "replicate_id": prediction.id,
+                "replicate_process_id": prediction.id,
                 "replicate_request": {
                     "model": prediction.model,
                     "version": prediction.version,
@@ -116,23 +149,167 @@ def process():
     return redirect(url_for("index"))
 
 
-@app.route("/webhooks", methods=["POST"])
-def webhook():
+def request_embeddings(id):
+    app.logger.info("Requesting embeddings for %s", id)
+
+    client = get_mongo_client()
+    if client is None:
+        raise RuntimeError("Failed to connect to MongoDB")
+
+    asset = client[Config.DB_NAME][Config.COLLECTION_NAME].find_one({"_id": id})
+
+    if asset is None:
+        raise RuntimeError("Asset not found")
+
+    if asset["status"] != "PROCESSED":
+        raise RuntimeError("Asset has not been processed")
+
+    generator = get_embedding_generator()
+
+    generate_request = generator.generate(asset["text"])
+
+    client[Config.DB_NAME][Config.COLLECTION_NAME].update_one(
+        filter={"_id": id},
+        update={
+            "$set": {
+                "status": "GENERATING_EMBEDDINGS",
+                "replicate_embedding_id": generate_request.id,
+            }
+        },
+    )
+
+
+# Inspiration https://www.mongodb.com/developer/products/atlas/how-use-cohere-embeddings-rerank-modules-mongodb-atlas/#query-mongodb-vector-index-using--vectorsearch
+def query_vector_search(q, prefilter={}, postfilter={}, path="embedding", topK=2):
+    client = get_mongo_client()
+    if client is None:
+        raise RuntimeError("Failed to connect to MongoDB")
+
+    asset_collection = client[Config.DB_NAME][Config.COLLECTION_NAME]
+
+    # Because the search is user-driven, we use the synchronous generator
+    generator = get_sync_embedding_generator()
+
+    generate_response = generator.generate(q)
+
+    query_embedding = generate_response[0]["embedding"]
+
+    app.logger.info("Query embedding generated")
+    app.logger.debug(query_embedding)
+
+    vs_query = {
+        "index": "vector_index",
+        "path": path,
+        "queryVector": query_embedding,
+        "numCandidates": 10,
+        "limit": topK,
+    }
+    if len(prefilter) > 0:
+        app.logger.info("Creating vector search query with pre filter")
+        vs_query["filter"] = prefilter
+
+    new_search_query = {"$vectorSearch": vs_query}
+
+    app.logger.info("Vector search query created")
+    app.logger.debug(new_search_query)
+
+    project = {
+        "$project": {
+            "score": {"$meta": "vectorSearchScore"},
+            "_id": 0,
+            "url": 1,
+            "content_type": 1,
+            "content_length": 1,
+            "text": 1,
+        }
+    }
+
+    if len(postfilter.keys()) > 0:
+        app.logger.info("Vector search query with post filter")
+        postFilter = {"$match": postfilter}
+        res = list(asset_collection.aggregate([new_search_query, project, postFilter]))
+    else:
+        app.logger.info("Vector search query without post filter")
+        res = list(asset_collection.aggregate([new_search_query, project]))
+
+    app.logger.info("Vector search query run")
+    app.logger.debug(res)
+    return res
+
+
+@app.route("/webhooks/audio", methods=["POST"])
+def webhook_audio():
     payload = request.json
-    app.logger.debug("Payload recieved %s", payload)
+    app.logger.info("Audio payload recieved")
+    app.logger.debug(payload)
 
     client = get_mongo_client()
 
     if client is None:
         return jsonify({"error": "Database connection failed"}), 500
 
-    result = client["iaat"]["indexes"].update_one(
-        filter={"replicate_id": payload["id"]},
-        update={"$set": {"status": "PROCESSED", "replicate_response": payload}},
+    status = (
+        "PROCESSING_ERROR" if "error" in payload and payload["error"] else "PROCESSED"
+    )
+
+    result = client[Config.DB_NAME][Config.COLLECTION_NAME].find_one_and_update(
+        filter={"replicate_process_id": payload["id"]},
+        update={
+            "$set": {
+                "status": status,
+                "text": payload["output"]["transcription"],
+                "replicate_response": payload,
+            }
+        },
+        return_document=True,
+    )
+
+    if result is None:
+        app.logger.error(
+            "No document found for id %s to add audio transcript", payload["id"]
+        )
+        return jsonify({"error": "No document found to add audio transcript"}), 500
+
+    app.logger.info("Transcription updated")
+    app.logger.debug(result)
+
+    request_embeddings(result["_id"])
+
+    return "OK"
+
+
+@app.route("/webhooks/embedding", methods=["POST"])
+def webhook_embeddings():
+    payload = request.json
+    app.logger.info("Embeddings payload recieved")
+    app.logger.debug(payload)
+
+    client = get_mongo_client()
+
+    if client is None:
+        return jsonify({"error": "Database connection failed"}), 500
+
+    status = (
+        "EMBEDDINGS_ERROR" if "error" in payload and payload["error"] else "SEARCHABLE"
+    )
+
+    embedding = payload["output"][0]["embedding"]
+
+    result = client[Config.DB_NAME][Config.COLLECTION_NAME].update_one(
+        filter={"replicate_embedding_id": payload["id"]},
+        update={
+            "$set": {
+                "status": status,
+                "embedding": embedding,
+                "replicate_embeddings_response": payload,
+            }
+        },
     )
 
     if result.matched_count == 0:
-        app.logger.error("No document found for id %s", payload["id"])
-        return jsonify({"error": "No document found"}), 500
+        app.logger.error(
+            "No document found for id %s to update embedding", payload["id"]
+        )
+        return jsonify({"error": "No document found to update embedding"}), 500
 
     return "OK"

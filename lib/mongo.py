@@ -1,10 +1,11 @@
-import os
 from pymongo.mongo_client import MongoClient
 from pymongo.server_api import ServerApi
 
+from config import Config
+
 
 def get_mongo_client():
-    MONGODB_CONNECTION_URI = os.getenv("MONGODB_CONNECTION_URI")
+    MONGODB_CONNECTION_URI = Config.MONGODB_CONNECTION_URI
 
     # Create a new client and connect to the server
     client = MongoClient(MONGODB_CONNECTION_URI, server_api=ServerApi("1"))
