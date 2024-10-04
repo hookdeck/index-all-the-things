@@ -7,8 +7,8 @@ from config import Config
 from allthethings.mongo import Database
 from allthethings.processors import get_asset_processor
 from allthethings.generators import (
-    get_embedding_generator,
-    get_sync_embedding_generator,
+    AsyncEmbeddingsGenerator,
+    SyncEmbeddingsGenerator,
 )
 
 app = Flask(
@@ -153,7 +153,7 @@ def request_embeddings(id):
     if asset["status"] != "PROCESSED":
         raise RuntimeError("Asset has not been processed")
 
-    generator = get_embedding_generator()
+    generator = AsyncEmbeddingsGenerator()
 
     generate_request = generator.generate(asset["text"])
 
@@ -171,7 +171,7 @@ def request_embeddings(id):
 # Inspiration https://www.mongodb.com/developer/products/atlas/how-use-cohere-embeddings-rerank-modules-mongodb-atlas/#query-mongodb-vector-index-using--vectorsearch
 def query_vector_search(q, prefilter={}, postfilter={}, path="embedding", topK=2):
     # Because the search is user-driven, we use the synchronous generator
-    generator = get_sync_embedding_generator()
+    generator = SyncEmbeddingsGenerator()
 
     generate_response = generator.generate(q)
 

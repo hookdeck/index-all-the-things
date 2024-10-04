@@ -3,15 +3,7 @@ import replicate
 from config import Config
 
 
-def get_embedding_generator():
-    return EmbeddingsGenerator()
-
-
-def get_sync_embedding_generator():
-    return SyncEmbeddingsGenerator()
-
-
-class EmbeddingsGenerator:
+class AsyncEmbeddingsGenerator:
     def __init__(self):
         self.WEBHOOK_URL = Config.EMBEDDINGS_WEBHOOK_URL
         self.model = replicate.models.get("replicate/all-mpnet-base-v2")
