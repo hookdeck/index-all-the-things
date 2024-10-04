@@ -1,17 +1,10 @@
 # Inspiration https://www.mongodb.com/developer/products/atlas/how-use-cohere-embeddings-rerank-modules-mongodb-atlas/#programmatically-create-vector-search-and-full-text-search-index
 
-from config import Config
-from lib.mongo import get_mongo_client
+from allthethings.mongo import Database
 from pymongo.operations import SearchIndexModel
 
-# Connect to your Atlas deployment
-client = get_mongo_client()
-if client is None:
-    raise Exception("Failed to connect to MongoDB")
-
-# Access your database and collection
-database = client[Config.DB_NAME]
-collection = database[Config.COLLECTION_NAME]
+database = Database()
+collection = database.get_collection()
 
 # Create your index model, then create the search index
 search_index_model = SearchIndexModel(
