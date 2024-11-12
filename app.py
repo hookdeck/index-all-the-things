@@ -4,9 +4,12 @@ from flask import Flask, jsonify, request, render_template, redirect, url_for, f
 
 from config import Config
 
-from lib.mongo import get_mongo_client
-from lib.processors import get_asset_processor
-from lib.generators import get_embedding_generator, get_sync_embedding_generator
+from allthethings.mongo import Database
+from allthethings.processors import get_asset_processor
+from allthethings.generators import (
+    AsyncEmbeddingsGenerator,
+    SyncEmbeddingsGenerator,
+)
 
 app = Flask(
     __name__, static_url_path="", template_folder="templates", static_folder="static"
@@ -35,12 +38,9 @@ def format_results(results):
 
 @app.route("/")
 def index():
-    client = get_mongo_client()
-    if client is None:
-        flash("Failed to connect to MongoDB")
-        return redirect(url_for("index"))
+    database = Database()
 
-    indexes = client[Config.DB_NAME][Config.COLLECTION_NAME].find({})
+    indexes = database.get_collection().find({})
     results = format_results(indexes)
 
     app.logger.info("Homepage loading")
@@ -56,11 +56,6 @@ def search():
 
 @app.route("/search", methods=["POST"])
 def search_post():
-    client = get_mongo_client()
-    if client is None:
-        flash("Failed to connect to MongoDB")
-        return redirect(url_for("index"))
-
     query = request.form["query"]
 
     app.logger.info("Query submitted")
@@ -80,12 +75,10 @@ def search_post():
 def process():
     url = request.form["url"]
 
-    client = get_mongo_client()
-    if client is None:
-        flash("Failed to connect to MongoDB")
-        return redirect(url_for("index"))
+    database = Database()
+    collection = database.get_collection()
 
-    exists = client[Config.DB_NAME][Config.COLLECTION_NAME].find_one({"url": url})
+    exists = collection.find_one({"url": url})
     if exists is not None:
         flash("URL has already been indexed")
         return redirect(url_for("index"))
@@ -108,7 +101,7 @@ def process():
         flash('Unsupported content type "' + content_type + '"')
         return redirect(url_for("index"))
 
-    client[Config.DB_NAME][Config.COLLECTION_NAME].insert_one(
+    collection.insert_one(
         {
             "url": url,
             "content_type": content_type,
@@ -119,7 +112,7 @@ def process():
 
     prediction = processor.process(url)
 
-    client[Config.DB_NAME][Config.COLLECTION_NAME].update_one(
+    collection.update_one(
         filter={"url": url},
         update={
             "$set": {
@@ -149,11 +142,10 @@ def process():
 def request_embeddings(id):
     app.logger.info("Requesting embeddings for %s", id)
 
-    client = get_mongo_client()
-    if client is None:
-        raise RuntimeError("Failed to connect to MongoDB")
+    database = Database()
+    collection = database.get_collection()
 
-    asset = client[Config.DB_NAME][Config.COLLECTION_NAME].find_one({"_id": id})
+    asset = collection.find_one({"_id": id})
 
     if asset is None:
         raise RuntimeError("Asset not found")
@@ -161,11 +153,11 @@ def request_embeddings(id):
     if asset["status"] != "PROCESSED":
         raise RuntimeError("Asset has not been processed")
 
-    generator = get_embedding_generator()
+    generator = AsyncEmbeddingsGenerator()
 
     generate_request = generator.generate(asset["text"])
 
-    client[Config.DB_NAME][Config.COLLECTION_NAME].update_one(
+    collection.update_one(
         filter={"_id": id},
         update={
             "$set": {
@@ -178,14 +170,8 @@ def request_embeddings(id):
 
 # Inspiration https://www.mongodb.com/developer/products/atlas/how-use-cohere-embeddings-rerank-modules-mongodb-atlas/#query-mongodb-vector-index-using--vectorsearch
 def query_vector_search(q, prefilter={}, postfilter={}, path="embedding", topK=2):
-    client = get_mongo_client()
-    if client is None:
-        raise RuntimeError("Failed to connect to MongoDB")
-
-    asset_collection = client[Config.DB_NAME][Config.COLLECTION_NAME]
-
     # Because the search is user-driven, we use the synchronous generator
-    generator = get_sync_embedding_generator()
+    generator = SyncEmbeddingsGenerator()
 
     generate_response = generator.generate(q)
 
@@ -221,13 +207,16 @@ def query_vector_search(q, prefilter={}, postfilter={}, path="embedding", topK=2
         }
     }
 
+    database = Database()
+    collection = database.get_collection()
+
     if len(postfilter.keys()) > 0:
         app.logger.info("Vector search query with post filter")
         postFilter = {"$match": postfilter}
-        res = list(asset_collection.aggregate([new_search_query, project, postFilter]))
+        res = list(collection.aggregate([new_search_query, project, postFilter]))
     else:
         app.logger.info("Vector search query without post filter")
-        res = list(asset_collection.aggregate([new_search_query, project]))
+        res = list(collection.aggregate([new_search_query, project]))
 
     app.logger.info("Vector search query run")
     app.logger.debug(res)
@@ -240,16 +229,14 @@ def webhook_audio():
     app.logger.info("Audio payload recieved")
     app.logger.debug(payload)
 
-    client = get_mongo_client()
-
-    if client is None:
-        return jsonify({"error": "Database connection failed"}), 500
+    database = Database()
+    collection = database.get_collection()
 
     status = (
         "PROCESSING_ERROR" if "error" in payload and payload["error"] else "PROCESSED"
     )
 
-    result = client[Config.DB_NAME][Config.COLLECTION_NAME].find_one_and_update(
+    result = collection.find_one_and_update(
         filter={"replicate_process_id": payload["id"]},
         update={
             "$set": {
@@ -281,18 +268,16 @@ def webhook_embeddings():
     app.logger.info("Embeddings payload recieved")
     app.logger.debug(payload)
 
-    client = get_mongo_client()
-
-    if client is None:
-        return jsonify({"error": "Database connection failed"}), 500
-
     status = (
         "EMBEDDINGS_ERROR" if "error" in payload and payload["error"] else "SEARCHABLE"
     )
 
     embedding = payload["output"][0]["embedding"]
 
-    result = client[Config.DB_NAME][Config.COLLECTION_NAME].update_one(
+    database = Database()
+    collection = database.get_collection()
+
+    result = collection.update_one(
         filter={"replicate_embedding_id": payload["id"]},
         update={
             "$set": {
