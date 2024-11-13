@@ -76,23 +76,27 @@ Update the values within `.env` as follows:
 
 ### H3: Create Hookdeck Connections
 
-The `create-hookdeck-connections.py` script automatically creates [Hookdeck Connections](https://hookdeck.com/docs/connections?ref=mongodb-iatt) that route requests made to Hookdeck URLs through to the locally running application.
+The `create-hookdeck-connections.py` script automatically creates [Hookdeck Connections](https://hookdeck.com/docs/connections?ref=mongodb-iatt) that route requests made to Hookdeck URLs through to the locally running application. It also updates the `.env`
+file with the new webhook URLs.
 
-```py title="create-hookdeck-connections.py"
+First, ensure you have the necessary imports and define the headers for the Hookdeck API request:
+
+```py
 import http.client
 import json
-
 from config import Config
 import re
-
 
 # Define the headers for the Hookdeck API request
 headers = {
     "Authorization": f"Bearer {Config.HOOKDECK_PROJECT_API_KEY}",
     "Content-Type": "application/json",
 }
+```
 
+Next, define a function to create a connection to the Hookdeck API:
 
+```py
 def create_connection(payload):
     conn = http.client.HTTPSConnection("api.hookdeck.com")
     conn.request(
@@ -106,9 +110,13 @@ def create_connection(payload):
         raise Exception(f"Failed to create connection: {data}")
 
     return json.loads(data)
+```
 
+This function establishes a connection to the Hookdeck API, sends a PUT request with the [upsert connection payload](https://hookdeck.com/docs/api#createupdate-a-connection?ref=mongodb-iatt), and handles the response. If the response status is not `200` (OK), an exception is raised. The function returns the parsed JSON response.
 
-# Create Replicate Audio Connection
+Now, create a connection for "replicate-audio" to handle audio analysis callbacks:
+
+```py
 replicate_audio = {
     "name": "replicate-audio",
     "source": {
@@ -121,8 +129,11 @@ replicate_audio = {
 }
 
 replicate_audio_connection = create_connection(replicate_audio)
+```
 
-# Create Replicate Embedding Connection
+Next, create a connection for "replicate-embedding" to handle embedding generation callbacks:
+
+```py
 replicate_embedding = {
     "name": "replicate-embedding",
     "source": {
@@ -135,7 +146,11 @@ replicate_embedding = {
 }
 
 replicate_embedding_connection = create_connection(replicate_embedding)
+```
 
+Finally, update the `.env` file with the new webhook URLs obtained from the API responses:
+
+```py
 # Update .env
 with open(".env", "r") as file:
     env_content = file.read()
@@ -157,13 +172,7 @@ with open(".env", "w") as file:
     file.write(env_content)
 ```
 
-The script begins by importing necessary modules, including `http.client` for making HTTP requests, `json` for handling JSON data, and `re` for regular expressions.
-
-The `Config` class is imported from a local config module to access the Hookdeck API key you stored earlier. The `create_connection` function is defined to establish a connection to the Hookdeck API, send a `PUT` request with an [upsert connection payload](https://hookdeck.com/docs/api#createupdate-a-connection?ref=mongodb-iatt), and handle the response. If the response status is not `200` (OK), an exception is raised. The function returns the parsed JSON response, representing the connection.
-
-Two connections are created using the `create_connection` function: one for "replicate-audio" and another for "replicate-embedding".  "replicate-audio" has a callback path of `/webhooks/audio` and "replicate-embedding" of `/webhooks/embedding`.
-
-Finally, the code updates the `.env` file with the new webhook URLs (`..._connection["source"]["url"]`) obtained from the API responses. It reads the current `.env` content, replaces the existing `AUDIO_WEBHOOK_URL` and `EMBEDDINGS_WEBHOOK_URL` configuration values using regular expressions, and writes the updated content back to the `.env` file.
+This code reads the current `.env` content, replaces the existing `AUDIO_WEBHOOK_URL` and `EMBEDDINGS_WEBHOOK_URL` using regular expressions, and writes the updated content back to the `.env` file. This ensures that the environment variables for the webhook URLs are up-to-date.
 
 Run the script:
 
@@ -172,6 +181,10 @@ poetry run python create-hookdeck-connections.py
 ```
 
 Check your `.env` file to ensure the `...WEBHOOK_URL` values are populated.
+
+Also, navigate to the **Connections** section of the Hookdeck dashboard and check the visual representation of your connection.
+
+TODO: Image
 
 ### H3: Create MongoDB Atlas Indexes
 
@@ -208,7 +221,7 @@ def create_or_update_search_index(index_name, index_definition, index_type):
     return result
 ```
 
-This function checks if an index with the given name already exists. If it does not exist, it creates a new search index using the provided definition and type. If it exists, it updates the existing index with the new definition.
+This function checks if an index with the given name (`index_name`) already exists. If it does not exist, it creates a new search index using the provided definition and type. If it exists, it updates the existing index with the new definition.
 
 Now, create a vector search index for embeddings:
 
@@ -232,7 +245,7 @@ print(vector_result)
 
 This code creates or updates a vector search index named "vector_index" with fields for embeddings, specifying the number of dimensions and similarity measure.
 
-Finally, create a search index for `replicate_embedding_id`:
+Finally, create a search index for `replicate_embedding_id` because it's used when looking up documents when storing embedding results:
 
 ```py
 index_result = create_or_update_search_index(
@@ -253,66 +266,10 @@ print(index_result)
 
 This code creates or updates a search index named "replicate_by_embedding_id_index" with fields for `replicate_embedding_id`.
 
-By following these steps, you have successfully created and updated search indexes in MongoDB, enabling efficient search operations on your data.
+Run the script:
 
-```py title="create-indexes.py"
-from allthethings.mongo import Database
-from pymongo.operations import SearchIndexModel
-
-database = Database()
-collection = database.get_collection()
-
-
-def create_or_update_search_index(index_name, index_definition, index_type):
-    indexes = list(collection.list_search_indexes(index_name))
-    if len(indexes) == 0:
-        print(f'Creating search index: "{index_name}"')
-        index_model = SearchIndexModel(
-            definition=index_definition,
-            name=index_name,
-            type=index_type,
-        )
-        result = collection.create_search_index(model=index_model)
-
-    else:
-        print(f'Search index "{index_name}" already exists. Updating.')
-        result = collection.update_search_index(
-            name=index_name, definition=index_definition
-        )
-
-    return result
-
-
-vector_result = create_or_update_search_index(
-    "vector_index",
-    {
-        "fields": [
-            {
-                "type": "vector",
-                "path": "embedding",
-                "numDimensions": 768,
-                "similarity": "euclidean",
-            }
-        ]
-    },
-    "vectorSearch",
-)
-print(vector_result)
-
-index_result = create_or_update_search_index(
-    "replicate_by_embedding_id_index",
-    {
-        "mappings": {"dynamic": True},
-        "fields": [
-            {
-                "type": "string",
-                "path": "replicate_embedding_id",
-            }
-        ],
-    },
-    "search",
-)
-print(index_result)
+```sh
+poetry run python create-hookdeck-connections.py
 ```
 
 H3: Check the App is Working
