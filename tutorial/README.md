@@ -597,9 +597,9 @@ Update the database with the transcription results and the processing status:
     )
 ```
 
-This finds the document in the database with the matching `replicate_process_id` and updates it with the new status, transcription text, and the entire payload.
+This finds the document in the database with the matching `replicate_process_id` and updates it with the new status, transcription `text`, and the entire payload.
 
-If the document wasn't found, log an error and return a 404 response:
+If the document wasn't found, log an error and return a `404` response:
 
 ```py
     if result is None:
@@ -628,13 +628,167 @@ In summary, this route updates the database with transcription results and reque
 
 ## H2: Generate Embedding
 
+The `request_embeddings` function triggers the generation of embeddings for the textual representation of any indexed assets.
 
+Begin by retrieving the asset representation from MongoDB:
 
-H3: Trigger Embedding Generation with Webhook Callback
-H3: Handle Embedding Generation Webhook Callback
-H3: Store Embedding
-H3: Store Progress
-H2: Searching using Atlas Vector Search
+```py
+def request_embeddings(id):
+    app.logger.info("Requesting embeddings for %s", id)
+
+    database = Database()
+    collection = database.get_collection()
+
+    asset = collection.find_one({"_id": id})
+
+    if asset is None:
+        raise RuntimeError("Asset not found")
+```
+
+This code finds the document in the database with the matching ID. If no document is found, a `RuntimeError` is raised.
+
+Check if the asset has been processed:
+
+```py
+    if asset["status"] != "PROCESSED":
+        raise RuntimeError("Asset has not been processed")
+```
+
+This code checks if the status of the asset is `PROCESSED`, indicating that a textual representation has been created. If the asset has not been processed, a `RuntimeError` is raised.
+
+### H3: Trigger Embedding Generation with Webhook Callback
+
+Next, generate the embeddings for the processed asset using the `AsyncEmbeddingsGenerator`:
+
+```py
+    generator = AsyncEmbeddingsGenerator()
+
+    generate_request = generator.generate(asset["text"])
+```
+
+This code initializes the `AsyncEmbeddingsGenerator` and calls the `generate` function on the instance, passing the textual representation of the asset.
+
+The `AsyncEmbeddingsGenerator` definition in `allthethings/generators.py` follows a similar pattern to the previously used processor:
+
+```py
+import replicate
+from config import Config
+
+class AsyncEmbeddingsGenerator:
+    def __init__(self):
+        self.WEBHOOK_URL = Config.EMBEDDINGS_WEBHOOK_URL
+        self.model = replicate.models.get("replicate/all-mpnet-base-v2")
+        self.version = self.model.versions.get(
+            "b6b7585c9640cd7a9572c6e129c9549d79c9c31f0d3fdce7baac7c67ca38f305"
+        )
+```
+
+This class initializes the `AsyncEmbeddingsGenerator` with the `EMBEDDINGS_WEBHOOK_URL` webhook URL passed to receive the asynchronous response. The [replicate/all-mpnet-base-v2](replicate/all-mpnet-base-v2) model us used to generate embeddings.
+
+Next, the `generate` method within the `AsyncEmbeddingsGenerator` class:
+
+```py
+    def generate(self, text):
+        input = {"text": text}
+
+        prediction = replicate.predictions.create(
+            version=self.version,
+            input=input,
+            webhook=self.WEBHOOK_URL,
+            webhook_events_filter=["completed"],
+        )
+
+        return prediction
+```
+
+This method generates embeddings for the provided text by creating a prediction request to the Replicate model. As before, the use of the `webhook_events_filter=["completed"]` filter informs Replicate to only send a webhook when the prediction is completed. The method returns the prediction object, which contains the details of the embedding generation request.
+
+Back in `app.py`, update the database with the status and embedding request ID:
+
+```py
+    collection.update_one(
+        filter={"_id": id},
+        update={
+            "$set": {
+                "status": "GENERATING_EMBEDDINGS",
+                "replicate_embedding_id": generate_request.id,
+            }
+        },
+    )
+```
+
+Update the document in the database with the new status `GENERATING_EMBEDDINGS` and the ID of the embedding request.
+
+The request to asynchronously generate the embeddings has been triggered, and the work offloaded to Replicate. When the result is read, a webhook will be triggered with the result.
+
+### H3: Handle Embedding Generation Webhook Callback
+
+### Step 16: Handling Embedding Webhooks
+
+The `/webhooks/embedding` route in our Flask application handles the webhooks for embedding generation. This route receives the webhook payload, updates the database with the embedding results, and sets the appropriate status.
+
+First, the `/webhooks/embedding` route definition:
+
+```py
+@app.route("/webhooks/embedding", methods=["POST"])
+def webhook_embeddings():
+    payload = request.json
+    app.logger.info("Embeddings payload received")
+    app.logger.debug(payload)
+```
+
+This route handles POST requests to the `/webhooks/embedding` endpoint. It retrieves the JSON payload from the request.
+
+Determine the processing status based on the presence of an error in the payload:
+
+```py
+    status = (
+        "EMBEDDINGS_ERROR" if "error" in payload and payload["error"] else "SEARCHABLE"
+    )
+```
+
+This code checks if there is an error in the payload. If an error is present, the status is set to `EMBEDDINGS_ERROR`; otherwise, it is set to `SEARCHABLE`.
+
+Next, extract the vector embedding from the payload and update the database with the embedding details and the new status:
+
+```py
+    embedding = payload["output"][0]["embedding"]
+
+    database = Database()
+    collection = database.get_collection()
+
+    result = collection.update_one(
+        filter={"replicate_embedding_id": payload["id"]},
+        update={
+            "$set": {
+                "status": status,
+                "embedding": embedding,
+                "replicate_embeddings_response": payload,
+            }
+        },
+    )
+```
+
+This finds the document in the database with the matching `replicate_embedding_id` and updates it with the new status, embedding, and the entire payload.
+
+Check if the document was found and updated:
+
+```py
+    if result.matched_count == 0:
+        app.logger.error(
+            "No document found for id %s to update embedding", payload["id"]
+        )
+        return jsonify({"error": "No document found to update embedding"}), 404
+
+    return "OK"
+```
+
+If no document is found for the given `replicate_embedding_id`, an error is logged, and a JSON response with an error message is returned with a `404` status. If the update was success, return an `OK` to inform Hookdeck the webhook has been processed.
+
+With the vector embedding stored in the `embedding` property, it's not searchable with MongoDB due to the previously defined vector search index.
+
+## H2: Searching using Atlas Vector Search
+
 H3: Handle Search Submission
 H3: Generate Search Query Embedding
 H3: Retrieve Vector Search Results
