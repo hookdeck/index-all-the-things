@@ -1,5 +1,4 @@
-import http.client
-import json
+import httpx
 
 from config import Config
 import re
@@ -13,18 +12,18 @@ headers = {
 
 
 def create_connection(payload):
-    conn = http.client.HTTPSConnection("api.hookdeck.com")
-    conn.request(
-        "PUT", "/latest/connections", body=json.dumps(payload), headers=headers
+    response = httpx.request(
+        "PUT",
+        "https://api.hookdeck.com/latest/connections",
+        headers=headers,
+        json=payload,
     )
-    response = conn.getresponse()
-    data = response.read().decode()
-    conn.close()
+    data = response.json()
 
-    if response.status != 200:
+    if response.status_code != 200:
         raise Exception(f"Failed to create connection: {data}")
 
-    return json.loads(data)
+    return data
 
 
 # Create Replicate Audio Connection
@@ -32,7 +31,22 @@ replicate_audio = {
     "name": "replicate-audio",
     "source": {
         "name": "replicate-audio",
+        # "verification": {
+        #     "type": "REPLICATE",
+        #     "configs": {
+        #         "webhook_secret_key": Config.REPLICATE_WEBHOOKS_SECRET,
+        #     },
+        # },
     },
+    "rules": [
+        {
+            "type": "retry",
+            "strategy": "exponential",
+            "count": 5,
+            "interval": 30000,
+            "response_status_codes": ["!404"],
+        }
+    ],
     "destination": {
         "name": "cli-replicate-audio",
         "cli_path": "/webhooks/audio",
@@ -46,7 +60,22 @@ replicate_embedding = {
     "name": "replicate-embedding",
     "source": {
         "name": "replicate-embedding",
+        # "verification": {
+        #     "type": "REPLICATE",
+        #     "configs": {
+        #         "webhook_secret_key": Config.REPLICATE_WEBHOOKS_SECRET,
+        #     },
+        # },
     },
+    "rules": [
+        {
+            "type": "retry",
+            "strategy": "exponential",
+            "count": 5,
+            "interval": 30000,
+            "response_status_codes": ["!404"],
+        }
+    ],
     "destination": {
         "name": "cli-replicate-embedding",
         "cli_path": "/webhooks/embedding",
@@ -74,3 +103,5 @@ env_content = re.sub(
 
 with open(".env", "w") as file:
     file.write(env_content)
+
+print("Connections created successfully!")

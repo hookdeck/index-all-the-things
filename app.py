@@ -1,4 +1,4 @@
-import urllib
+import httpx
 from urllib.parse import urlparse
 from flask import Flask, jsonify, request, render_template, redirect, url_for, flash
 
@@ -85,15 +85,21 @@ def process():
 
     # Only do a HEAD request to avoid downloading the whole file
     # This offloads the file downloading Replicate
-    req = urllib.request.Request(url, method="HEAD")
-    fetch = urllib.request.urlopen(req)
+    response = httpx.request("HEAD", url)
 
-    if fetch.status != 200:
+    if response.status_code != 200:
         flash("URL is not reachable")
         return redirect(url_for("index"))
 
-    content_length = fetch.headers["Content-Length"]
-    content_type = fetch.headers["Content-Type"]
+    content_length = response.headers["Content-Length"]
+    content_type = response.headers["Content-Type"]
+
+    app.logger.debug(
+        "Processing URL: %s, Content-Type: %s, Content-Length: %s",
+        url,
+        content_type,
+        content_length,
+    )
 
     processor = get_asset_processor(content_type)
 
@@ -252,7 +258,7 @@ def webhook_audio():
         app.logger.error(
             "No document found for id %s to add audio transcript", payload["id"]
         )
-        return jsonify({"error": "No document found to add audio transcript"}), 500
+        return jsonify({"error": "No document found to add audio transcript"}), 404
 
     app.logger.info("Transcription updated")
     app.logger.debug(result)
@@ -292,6 +298,6 @@ def webhook_embeddings():
         app.logger.error(
             "No document found for id %s to update embedding", payload["id"]
         )
-        return jsonify({"error": "No document found to update embedding"}), 500
+        return jsonify({"error": "No document found to update embedding"}), 404
 
     return "OK"
