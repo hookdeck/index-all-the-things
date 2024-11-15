@@ -50,31 +50,14 @@ def index():
     return render_template("home.html", indexes=results)
 
 
-@app.route("/search", methods=["GET"])
-def search():
-    return render_template("search.html", results=[])
-
-
-@app.route("/search", methods=["POST"])
-def search_post():
-    query = request.form["query"]
-
-    app.logger.info("Query submitted")
-    app.logger.debug(query)
-
-    results = query_vector_search(query)
-
-    results = format_results(results)
-
-    # TODO: look into warning logged here
-    app.logger.debug("Formatted search results", results)
-
-    return render_template("search.html", results=results, query=query)
-
-
 @app.route("/process", methods=["POST"])
 def process():
     url = request.form["url"]
+
+    parsed_url = urlparse(url)
+    if not all([parsed_url.scheme, parsed_url.netloc]):
+        flash("Invalid URL")
+        return redirect(url_for("index"))
 
     database = Database()
     collection = database.get_collection()
@@ -137,6 +120,28 @@ def process():
     return redirect(url_for("index"))
 
 
+@app.route("/search", methods=["GET"])
+def search():
+    return render_template("search.html", results=[])
+
+
+@app.route("/search", methods=["POST"])
+def search_post():
+    query = request.form["query"]
+
+    app.logger.info("Query submitted")
+    app.logger.debug(query)
+
+    results = query_vector_search(query)
+
+    results = format_results(results)
+
+    # TODO: look into warning logged here
+    app.logger.debug("Formatted search results", results)
+
+    return render_template("search.html", results=results, query=query)
+
+
 def request_embeddings(id):
     app.logger.info("Requesting embeddings for %s", id)
 
@@ -173,7 +178,7 @@ def query_vector_search(q):
 
     generator_response = generator.generate(q)
     app.logger.debug(generator_response)
-    query_embedding = generator_response[0]["embedding"]
+    query_embedding = generator_response["output"][0]["embedding"]
 
     app.logger.info("Query embedding generated")
     app.logger.debug(query_embedding)
