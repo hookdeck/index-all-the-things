@@ -44,25 +44,11 @@ create_or_update_search_index(
 )
 
 create_or_update_search_index(
-    "replicate_process_id_index",
+    "url_index",
     {
         "mappings": {
             "fields": {
-                "replicate_process_id": {
-                    "type": "string",
-                },
-            },
-        }
-    },
-    "search",
-)
-
-create_or_update_search_index(
-    "replicate_embedding_id_index",
-    {
-        "mappings": {
-            "fields": {
-                "replicate_embedding_id": {
+                "url": {
                     "type": "string",
                 },
             },
