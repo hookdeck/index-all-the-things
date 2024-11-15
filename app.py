@@ -1,5 +1,6 @@
 import httpx
 from urllib.parse import urlparse
+from bson import ObjectId
 from flask import Flask, jsonify, request, render_template, redirect, url_for, flash
 
 from config import Config
@@ -107,7 +108,7 @@ def process():
         flash('Unsupported content type "' + content_type + '"')
         return redirect(url_for("index"))
 
-    collection.insert_one(
+    asset = collection.insert_one(
         {
             "url": url,
             "content_type": content_type,
@@ -116,23 +117,14 @@ def process():
         }
     )
 
-    prediction = processor.process(url)
+    response = processor.process(asset.inserted_id, url)
 
     collection.update_one(
         filter={"url": url},
         update={
             "$set": {
                 "status": "PROCESSING",
-                "replicate_process_id": prediction.id,
-                "replicate_request": {
-                    "model": prediction.model,
-                    "version": prediction.version,
-                    "status": prediction.status,
-                    "input": prediction.input,
-                    "logs": prediction.logs,
-                    "created_at": prediction.created_at,
-                    "urls": prediction.urls,
-                },
+                "processor_response": response,
             }
         },
     )
@@ -151,7 +143,7 @@ def request_embeddings(id):
     database = Database()
     collection = database.get_collection()
 
-    asset = collection.find_one({"_id": id})
+    asset = collection.find_one({"_id": ObjectId(id)})
 
     if asset is None:
         raise RuntimeError("Asset not found")
@@ -161,14 +153,14 @@ def request_embeddings(id):
 
     generator = AsyncEmbeddingsGenerator()
 
-    generate_request = generator.generate(asset["text"])
+    response = generator.generate(id, asset["text"])
 
     collection.update_one(
-        filter={"_id": id},
+        filter={"_id": ObjectId(id)},
         update={
             "$set": {
                 "status": "GENERATING_EMBEDDINGS",
-                "replicate_embedding_id": generate_request.id,
+                "generator_response": response,
             }
         },
     )
@@ -179,8 +171,9 @@ def query_vector_search(q):
     # Because the search is user-driven, we use the synchronous generator
     generator = SyncEmbeddingsGenerator()
 
-    generate_response = generator.generate(q)
-    query_embedding = generate_response[0]["embedding"]
+    generator_response = generator.generate(q)
+    app.logger.debug(generator_response)
+    query_embedding = generator_response[0]["embedding"]
 
     app.logger.info("Query embedding generated")
     app.logger.debug(query_embedding)
@@ -219,10 +212,10 @@ def query_vector_search(q):
     return res
 
 
-@app.route("/webhooks/audio", methods=["POST"])
-def webhook_audio():
+@app.route("/webhooks/audio/<id>", methods=["POST"])
+def webhook_audio(id):
     payload = request.json
-    app.logger.info("Audio payload recieved")
+    app.logger.info("Audio payload received for id %s", id)
     app.logger.debug(payload)
 
     database = Database()
@@ -233,7 +226,7 @@ def webhook_audio():
     )
 
     result = collection.find_one_and_update(
-        filter={"replicate_process_id": payload["id"]},
+        filter={"_id": ObjectId(id)},
         update={
             "$set": {
                 "status": status,
@@ -245,9 +238,7 @@ def webhook_audio():
     )
 
     if result is None:
-        app.logger.error(
-            "No document found for id %s to add audio transcript", payload["id"]
-        )
+        app.logger.error("No document found for id %s to add audio transcript", id)
         return jsonify({"error": "No document found to add audio transcript"}), 404
 
     app.logger.info("Transcription updated")
@@ -258,8 +249,8 @@ def webhook_audio():
     return "OK"
 
 
-@app.route("/webhooks/embedding", methods=["POST"])
-def webhook_embeddings():
+@app.route("/webhooks/embedding/<id>", methods=["POST"])
+def webhook_embeddings(id):
     payload = request.json
     app.logger.info("Embeddings payload recieved")
     app.logger.debug(payload)
@@ -274,7 +265,7 @@ def webhook_embeddings():
     collection = database.get_collection()
 
     result = collection.update_one(
-        filter={"replicate_embedding_id": payload["id"]},
+        filter={"_id": ObjectId(id)},
         update={
             "$set": {
                 "status": status,
