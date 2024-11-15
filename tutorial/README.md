@@ -2,22 +2,27 @@
 
 ## H2. Introduction
 
-In this tutorial, we will explore how to build a scalable, content-type agnostic vector search application using Python and Flask. We will leverage Replicate for model inference, MongoDB for data storage, and Hookdeck for managing webhooks.
+In this tutorial, we'll build a Flask application that allows a user to index and then search anything on the Internet that has a publically accessible URL. That's right! Ask the app to index an MP3 or WAV file, an HTML or Text file, or a MOV or MP4 file, and it will use the power of Replicate AI to create textual representation of that file and the results will be stored in MongoDB Atlas. Then, all those indexed files, no matter the originating file type, can be searched using text using MongoDB Atlas. We'll use the Hookdeck event gateway as a serverless queue, managing API requests and asynchronous webhook callbacks between Replicate and our Flask app.
 
-One of the key features of this vector search solution is its content-type agnosticism. This means that the app is designed to analyze and index various types of content but will use the textual representation as the common denominator. The current application supports HTML and Audio only. However, you will see how it can be expanded to support other content types.
-
-In this guide, we'll begin by getting an application up and running and then we'll follow the journey of data through key components and code within the app as it's analyzed, transformed, and enriched. We'll submit a piece of content to be indexed, it's content-type analyzed, an embedding is generated and stored, and the content is ultimately made available for search within a vector search index.
+In this guide, we'll begin by getting an application up and running, and then we'll follow the journey of data through key components and code within the app as the indexing request is submitted, the content-type analyzed, a textual representation is generated, a vector embedding is generated and stored, and the content is ultimately made available for search within a vector search index.
 
 ## H2. Architecture Overview
 
-Scalability is often overhyped, but it remains an important aspect of building robust applications. One of the benefits of using serverless and cloud-hosted providers is the ability to offload work to specialized services. In this tutorial, we leverage several such services to handle different aspects of our application:
+Scalability is often overhyped, but it remains an important aspect of building robust applications. One of the benefits of using serverless and cloud-hosted providers is the ability to offload work to specialized services. In this tutorial, we leverage several such services to handle different aspects of our application.
 
-- **Replicate**: Handles AI inference, producing text and embeddings and allowing us to offload the computationally intensive tasks of running machine learning models.
-- **MongoDB**: Provides database storage and vector search capabilities, ensuring our data is stored efficiently and can be queried quickly.
-- **Hookdeck**: Acts as a serverless queue, managing webhooks and ensuring reliable communication between services. It also provides a CLI, enabling you to receive webhooks in your local development environment.
+First let's take a look at the services:
 
+- **Replicate**: Provides open-source machine learning models, accessible via an API.
+- **MongoDB Atlas**: An integrated suite of data services centered around a cloud database designed to accelerate and simplify how you build with data. 
+- **Hookdeck**: An event gateway that provides engineering teams with infrastructure and tooling to build and manage event-driven applications. Note: We'll also use the Hookdeck CLI to receive webhooks in our local development environment.
+
+Next, let's see how they're used.
 
 TODO: image
+
+- **Replicate**: Replicate handles AI inference, producing text and embeddings and allowing us to offload the computationally intensive tasks of running machine learning models.
+- **MongoDB Atlas**: MongoDB Atlas provides database storage and vector search capabilities, ensuring our data is stored efficiently and can be queried quickly.
+- **Hookdeck**: Hookdeck acts as a serverless queue for a) ensuring Replicate API requests do not exceed rate limits and can be retried, and b) ingesting, delivery and retrying webhooks from Replicate to ensure reliable ingestion of events. 
 
 By utilizing these cloud-based services, we can focus on building the core functionality of our application while ensuring it remains scalable and efficient. Webhooks, in particular, allow for scalability by enabling [asynchronous AI workflows](https://hookdeck.com/blog/asynchronous-ai?ref=mongodb-iatt), offloading those high compute usage scenarios to the third-party services, and just receiving callbacks via a webhook when work is completed.
 
@@ -27,7 +32,7 @@ Before you begin, ensure you have the following:
 
 - A free [Hookdeck account](https://dashboard.hookdeck.com/signup?ref=mongodb-iatt)
 - The [Hookdeck CLI installed](https://hookdeck.com/docs/cli?ref=mongodb-iatt)
-- A trial [MongoDB Atlas account](https://www.mongodb.com/cloud/atlas/register)
+- A free [MongoDB Atlas account](https://www.mongodb.com/cloud/atlas/register)
 - A free [Replicate account](https://replicate.com/signin)
 - [Python 3](https://www.python.org/downloads/)
 - [Poetry](https://python-poetry.org/docs/#installation) for package management
