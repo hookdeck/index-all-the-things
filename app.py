@@ -175,12 +175,11 @@ def request_embeddings(id):
 
 
 # Inspiration https://www.mongodb.com/developer/products/atlas/how-use-cohere-embeddings-rerank-modules-mongodb-atlas/#query-mongodb-vector-index-using--vectorsearch
-def query_vector_search(q, prefilter={}, postfilter={}, path="embedding", topK=2):
+def query_vector_search(q):
     # Because the search is user-driven, we use the synchronous generator
     generator = SyncEmbeddingsGenerator()
 
     generate_response = generator.generate(q)
-
     query_embedding = generate_response[0]["embedding"]
 
     app.logger.info("Query embedding generated")
@@ -188,14 +187,11 @@ def query_vector_search(q, prefilter={}, postfilter={}, path="embedding", topK=2
 
     vs_query = {
         "index": "vector_index",
-        "path": path,
+        "path": "embedding",
         "queryVector": query_embedding,
         "numCandidates": 10,
-        "limit": topK,
+        "limit": 2,
     }
-    if len(prefilter) > 0:
-        app.logger.info("Creating vector search query with pre filter")
-        vs_query["filter"] = prefilter
 
     new_search_query = {"$vectorSearch": vs_query}
 
@@ -216,13 +212,7 @@ def query_vector_search(q, prefilter={}, postfilter={}, path="embedding", topK=2
     database = Database()
     collection = database.get_collection()
 
-    if len(postfilter.keys()) > 0:
-        app.logger.info("Vector search query with post filter")
-        postFilter = {"$match": postfilter}
-        res = list(collection.aggregate([new_search_query, project, postFilter]))
-    else:
-        app.logger.info("Vector search query without post filter")
-        res = list(collection.aggregate([new_search_query, project]))
+    res = list(collection.aggregate([new_search_query, project]))
 
     app.logger.info("Vector search query run")
     app.logger.debug(res)

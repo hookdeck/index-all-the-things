@@ -43,17 +43,30 @@ create_or_update_search_index(
     "vectorSearch",
 )
 
+create_or_update_search_index(
+    "replicate_process_id_index",
+    {
+        "mappings": {
+            "fields": {
+                "replicate_process_id": {
+                    "type": "string",
+                },
+            },
+        }
+    },
+    "search",
+)
 
 create_or_update_search_index(
-    "replicate_by_embedding_id_index",
+    "replicate_embedding_id_index",
     {
-        "mappings": {"dynamic": True},
-        "fields": [
-            {
-                "type": "string",
-                "path": "replicate_embedding_id",
-            }
-        ],
+        "mappings": {
+            "fields": {
+                "replicate_embedding_id": {
+                    "type": "string",
+                },
+            },
+        }
     },
     "search",
 )

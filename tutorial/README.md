@@ -292,19 +292,33 @@ vector_result = create_or_update_search_index(
 
 This creates or updates a vector search index named "vector_index" for the `embedding` field.
 
-Finally, create a search index for `replicate_embedding_id` because it's used when looking up documents when storing embedding results:
+Finally, create a search index for the fields `replicate_process_id` and `replicate_embedding_id` because they are used when looking up documents when handling webhook results from Replicate:
 
 ```py
-index_result = create_or_update_search_index(
-    "replicate_by_embedding_id_index",
+create_or_update_search_index(
+    "replicate_process_id_index",
     {
-        "mappings": {"dynamic": True},
-        "fields": [
-            {
-                "type": "string",
-                "path": "replicate_embedding_id",
-            }
-        ],
+        "mappings": {
+            "fields": {
+                "replicate_process_id": {
+                    "type": "string",
+                },
+            },
+        }
+    },
+    "search",
+)
+
+create_or_update_search_index(
+    "replicate_embedding_id_index",
+    {
+        "mappings": {
+            "fields": {
+                "replicate_embedding_id": {
+                    "type": "string",
+                },
+            },
+        }
     },
     "search",
 )
@@ -785,13 +799,182 @@ Check if the document was found and updated:
 
 If no document is found for the given `replicate_embedding_id`, an error is logged, and a JSON response with an error message is returned with a `404` status. If the update was success, return an `OK` to inform Hookdeck the webhook has been processed.
 
-With the vector embedding stored in the `embedding` property, it's not searchable with MongoDB due to the previously defined vector search index.
+With the vector embedding stored in the `embedding` property, it's now searchable with MongoDB due to the previously defined vector search index.
 
 ## H2: Searching using Atlas Vector Search
 
-H3: Handle Search Submission
-H3: Generate Search Query Embedding
+Search is user-driven. The user enters a search term and submits a form. That search query is handled, processed and the resulted returned and displayed. Let's walk through through each of those steps.
+
+![Search results](<search-results.png)
+
+### H3: Handle Search Submission
+
+The user navigates to the `/search` endpoint in their web browser, enters a search term and submits the form, making a `POST` request to the `/search` endpoint:
+
+```py
+@app.route("/search", methods=["POST"])
+def search_post():
+    query = request.form["query"]
+
+    app.logger.info("Query submitted")
+    app.logger.debug(query)
+
+    results = query_vector_search(query)
+
+    results = format_results(results)
+
+    app.logger.debug("Formatted search results", results)
+
+    return render_template("search.html", results=results, query=query)
+```
+
+The `search_post` function in the Flask application handles `POST` requests to the `/search` endpoint. It retrieves the search `query` from the form data submitted by the user and then performs a vector search using the `query_vector_search` function. The result is then formatted by passing the results to the `format_results` function. The formatted results are then rendered using the `search.html` template.
+
+The `query_vector_search` function performs a vector search using the query provided by the user, generates embeddings for the query, and retrieves matching documents from the MongoDB collection.
+
+```py
+def query_vector_search(q):
+```
+
+### H3: Generating Search Query Embeddings
+
+The function uses the `SyncEmbeddingsGenerator` to generate the embedding for the search query.
+
+```py
+    generator = SyncEmbeddingsGenerator()
+    generate_response = generator.generate(q)
+    query_embedding = generate_response[0]["embedding"]
+
+    app.logger.info("Query embedding generated")
+    app.logger.debug(query_embedding)
+```
+
+The `SyncEmbeddingsGenerated` is used to synchronously generate embeddings for the search query. This operation is synchronous because the request is user-driven and requires a direct response. `SyncEmbeddingsGenerated` is defined in `allthethings/generators.py`:
+
+```py
+class SyncEmbeddingsGenerator:
+
+    def generate(self, text):
+
+        input = {"text": text}
+        output = replicate.run(
+            "replicate/all-mpnet-base-v2:b6b7585c9640cd7a9572c6e129c9549d79c9c31f0d3fdce7baac7c67ca38f305",
+            input=input,
+        )
+
+        return output
+```
+
+The Replicate SDK is used to synchronously generate the embedding using the same model as the asynchronous generator. The result is returned to the calling `query_vector_search` function.
+
+### H3. Create Vector Search Query
+
+Back in `query_vector_search`, the embedding result is used to construct the vector search query.
+
+```py
+    generator = SyncEmbeddingsGenerator()
+    generate_response = generator.generate(q)
+    query_embedding = generate_response[0]["embedding"]
+
+    vs_query = {
+        "index": "vector_index",
+        "path": "embedding",
+        "queryVector": query_embedding,
+        "numCandidates": 10,
+        "limit": topK,
+    }
+
+    new_search_query = {"$vectorSearch": vs_query}
+
+    app.logger.info("Vector search query created")
+    app.logger.debug(new_search_query)
+```
+
+TODO: describe vs_query
+
 H3: Retrieve Vector Search Results
-H2: Conclusion
+
+Next, the function defines the projection to specify which fields to include in the search results.
+
+```py
+    project = {
+        "$project": {
+            "score": {"$meta": "vectorSearchScore"},
+            "_id": 0,
+            "url": 1,
+            "content_type": 1,
+            "content_length": 1,
+            "text": 1,
+        }
+    }
+```
+
+The projection includes the vector search score, URL, content type, content length, and text.
+
+The function then performs the aggregation query using the constructed vector search query and projection:
+
+```py
+    database = Database()
+    collection = database.get_collection()
+
+    app.logger.info("Vector search query without post filter")
+    res = list(collection.aggregate([new_search_query, project]))
+
+    app.logger.info("Vector search query run")
+    app.logger.debug(res)
+    return res
+```
+
+Overall, the `query_vector_search` function performs a vector search using the query provided by the user, generates embeddings for the query, and retrieves matching documents from the MongoDB collection.
+
+#### H3. Format and Display the Vector Search Results
+
+Once the results are available they are formatted for rendering:
+
+```py
+    results = format_results(results)
+```
+
+And within `format_results`, also defined in `app.py`:
+
+```py
+def format_results(results):
+    formatted_results = []
+    for _idx, index in enumerate(results):
+        parse_result = urlparse(index["url"])
+        parsed_url = {
+            "netloc": parse_result.netloc,
+            "path": parse_result.path,
+            "params": parse_result.params,
+            "query": parse_result.query,
+            "fragment": parse_result.fragment,
+            "hostname": parse_result.hostname,
+            "last_part": parse_result.path.rstrip("/").split("/")[-1],
+        }
+        index["parsed_url"] = parsed_url
+        formatted_results.append(index)
+
+    return formatted_results
+```
+
+The `format_results` function iterates over the vector search result and returns and array with each element containing the result along with a `parsed_url` property with information about the indexed asset.
+
+Finally, back in the `POST /search` route, display the results:
+
+```py
+@app.route("/search", methods=["POST"])
+def search_post():
+    ...
+
+    results = format_results(results)
+
+    return render_template("search.html", results=results, query=query)
+```
+
+This renders the `search.html` template, passing the formatted results and the original query to the template for display.
+
+## H2: Conclusion
+
+
 
 
