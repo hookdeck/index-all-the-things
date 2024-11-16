@@ -100,7 +100,21 @@ def process():
         }
     )
 
-    response = processor.process(asset.inserted_id, url)
+    try:
+        response = processor.process(asset.inserted_id, url)
+    except Exception as e:
+        app.logger.error("Error processing asset: %s", e)
+        collection.update_one(
+            filter={"url": url},
+            update={
+                "$set": {
+                    "status": "PROCESSING_ERROR",
+                    "error": str(e),
+                }
+            },
+        )
+        flash("Error processing asset")
+        return redirect(url_for("index"))
 
     collection.update_one(
         filter={"url": url},
