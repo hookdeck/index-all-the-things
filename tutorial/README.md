@@ -2,27 +2,27 @@
 
 ## H2. Introduction
 
-In this tutorial, we'll build a Flask application that allows a user to index and then search anything on the Internet that has a publically accessible URL. That's right! Ask the app to index an MP3 or WAV file, an HTML or Text file, or a MOV or MP4 file, and it will use the power of Replicate AI to create textual representation of that file and the results will be stored in MongoDB Atlas. Configure the application to use a specific LLM, and the search results are scored accordingly. Then, all those indexed files, no matter the originating file type, can be searched using text using MongoDB Atlas. We'll use the Hookdeck event gateway as a serverless queue, managing API requests and asynchronous webhook callbacks between Replicate and our Flask app to ensure our architecture is structured to scale with demand.
+In this tutorial, we'll build a Flask application that allows a user to index and then search anything on the Internet that has a publically accessible URL. That's right! Ask the app to index an MP3 or WAV file, an HTML or Text file, or a MOV or MP4 file, and it will use the power of Replicate AI to create textual representation of that file and the results will be stored in MongoDB Atlas. As long as there's an LLM that can analyze the resource and create a textual representation, it can be indexed. Then, all those indexed files, no matter the originating file type, can be searched using text using MongoDB Atlas. We'll use the Hookdeck event gateway as a serverless queue, managing API requests and asynchronous webhook callbacks between Replicate and our Flask app to ensure our architecture is structured to scale with demand.
 
-In this guide, we'll begin by getting an application up and running, and then we'll follow the journey of data through key components and code within the app as the indexing request is submitted, the content-type analyzed, a textual representation is generated, a vector embedding is generated and stored, and the content is ultimately made available for search within a vector search index.
+We'll begin by getting setting up the required services and getting the Flask application up and running. Then, we'll follow the journey of data through key components and code within the app, covering the indexing request is submitted, the content-type analyzed, a textual representation is generated, a vector embedding is generated and stored, and the content is ultimately made available for search within a vector search index.
 
 ## H2. Architecture Overview
 
-Scalability is often overhyped, but it remains an important aspect of building robust applications. One of the benefits of using serverless and cloud-hosted providers is the ability to offload work to specialized services. In this tutorial, we leverage several such services to handle different aspects of our application.
+Scalability is often overhyped, but it remains an important aspect of building robust applications. One of the benefits of using serverless and cloud-hosted providers is the ability to offload work to specialized services. Also important to any scalable architecture is a way of ensuring services aren't overloaded, and your application is fault-tolerant. In this tutorial, we leverage several such services to handle different aspects of our application.
 
 First let's take a look at the services:
 
-- **Replicate**: Provides open-source machine learning models, accessible via an API.
-- **MongoDB Atlas**: An integrated suite of data services centered around a cloud database designed to accelerate and simplify how you build with data. 
-- **Hookdeck**: An event gateway that provides engineering teams with infrastructure and tooling to build and manage event-driven applications. Note: We'll also use the Hookdeck CLI to receive webhooks in our local development environment.
+- **[Replicate](https://replicate.com)**: Provides open-source machine learning models, accessible via an API.
+- **[MongoDB Atlas](https://www.mongodb.com/products/platform/atlas-database)**: An integrated suite of data services centered around a cloud database designed to accelerate and simplify how you build with data. 
+- **[Hookdeck](https://hookdeck.com?ref=mongodb-iatt**: An event gateway that provides engineering teams with infrastructure and tooling to build and manage event-driven applications.
 
 Next, let's see how they're used.
 
 TODO: image
 
-- **Replicate**: Replicate handles AI inference, producing text and embeddings and allowing us to offload the computationally intensive tasks of running machine learning models.
+- **Replicate**: Replicate handles AI inference, producing text and embeddings and allowing us to offload the computationally intensive tasks of running machine learning models. We use different LLMs for analyzing different content types.
 - **MongoDB Atlas**: MongoDB Atlas provides database storage and vector search capabilities, ensuring our data is stored efficiently and can be queried quickly.
-- **Hookdeck**: Hookdeck acts as a serverless queue for a) ensuring Replicate API requests do not exceed rate limits and can be retried, and b) ingesting, delivery and retrying webhooks from Replicate to ensure reliable ingestion of events. 
+- **Hookdeck**: Hookdeck acts as a serverless queue for a) ensuring Replicate API requests do not exceed rate limits and can be retried, and b) ingesting, delivery and retrying webhooks from Replicate to ensure reliable ingestion of events. Note: We'll also use the [Hookdeck CLI](https://hookdeck.com/docs/cli?ref=mongodb-iatt) to receive webhooks in our local development environment.
 
 By utilizing these cloud-based services, we can focus on building the core functionality of our application while ensuring it remains scalable and efficient. Webhooks, in particular, allow for scalability by enabling [asynchronous AI workflows](https://hookdeck.com/blog/asynchronous-ai?ref=mongodb-iatt), offloading those high compute usage scenarios to the third-party services, and just receiving callbacks via a webhook when work is completed.
 
@@ -78,23 +78,29 @@ Update the values within `.env` as follows:
 - `HOOKDECK_PROJECT_API_KEY`: Get an API Key from the **Project** -> **Settings** -> **Secrets** section of the [Hookdeck Dashboard](https://dashboard.hookdeck.com?ref=mongodb-iatt).
 - `REPLICATE_API_TOKEN`: [Create an API token](https://replicate.com/account/api-tokens) in the Replicate dashboard.
 - `REPLICATE_WEBHOOKS_SECRET`: Go to the [Webhooks section](https://replicate.com/account/webhook) of the Replicate dashboard and click the **Show signing key** button.
-- `AUDIO_WEBHOOK_URL` and `EMBEDDINGS_WEBHOOK_URL` will be automatically populated in the next step.
+- `HOOKDECK_REPLICATE_API_QUEUE_API_KEY`, `HOOKDECK_REPLICATE_API_QUEUE_URL`, `AUDIO_WEBHOOK_URL` and `EMBEDDINGS_WEBHOOK_URL` will be automatically populated in the next step.
 
 ### H3: Create Hookdeck Connections
 
-[Hookdeck Connections](https://hookdeck.com/docs/connections?ref=mongodb-iatt) are used to route inbound HTTP request to a [Hookdeck Source](https://hookdeck.com/docs/sources?ref=mongodb-iatt) to a [Hookdeck Destination](https://hookdeck.com/docs/destinations?ref=mongodb-iatt).
+[Hookdeck Connections](https://hookdeck.com/docs/connections?ref=mongodb-iatt) are used to route inbound HTTP request received by a [Hookdeck Source](https://hookdeck.com/docs/sources?ref=mongodb-iatt) to a [Hookdeck Destination](https://hookdeck.com/docs/destinations?ref=mongodb-iatt).
 
-The `create-hookdeck-connections.py` script automatically creates Hookdeck Connections that route requests made to Hookdeck URLs through to the locally running application via the Hookdeck CLI. The script also updates the `.env` file with the Source URLs that handle the webhooks.
+The `create-hookdeck-connections.py` script automatically creates the following Hookdeck Connections that:
 
-First, ensure you have the necessary imports and define the headers for the Hookdeck API request:
+1. Route requests made to Hookdeck URLs through to the locally running application via the Hookdeck CLI. Here, Hookdeck is used as an inbound queue.
+2. Route request made to a Hookdeck URL through to the Replicate API. Hookdeck is used as an outbound queue in this situation.
+
+The script also updates the `.env` file with the Source URLs that handle the webhooks. Let's go through the details of the script.
+
+First, ensure you have the necessary imports and define the authentication and content-type headers for the Hookdeck API request:
 
 ```py
 import httpx
+import re
+import hashlib
+import os
 
 from config import Config
-import re
 
-# Define the headers for the Hookdeck API request
 headers = {
     "Authorization": f"Bearer {Config.HOOKDECK_PROJECT_API_KEY}",
     "Content-Type": "application/json",
@@ -121,7 +127,55 @@ def create_connection(payload):
 
 This function makes `PUT` request to the Hookdeck API with the [upsert Connection payload](https://hookdeck.com/docs/api#createupdate-a-connection?ref=mongodb-iatt), and handles the response. If the response status is not `200` (OK), an exception is raised. The function returns the parsed JSON response.
 
-Now, create a Connection for "replicate-audio" to handle audio analysis callbacks:
+The first connection to be created is one for the Replicate API outbound queue:
+
+```py
+replicate_api_queue_api_key = hashlib.sha256(os.urandom(32)).hexdigest()
+replicate_api_queue = {
+    "name": "replicate-api-queue",
+    "source": {
+        "name": "replicate-api-inbound",
+        "verification": {
+            "type": "API_KEY",
+            "configs": {
+                "header_key": Config.HOOKDECK_QUEUE_API_KEY_HEADER_NAME,
+                "api_key": replicate_api_queue_api_key,
+            },
+        },
+    },
+    "rules": [
+        {
+            "type": "retry",
+            "strategy": "exponential",
+            "count": 5,
+            "interval": 30000,
+            "response_status_codes": ["429", "500"],
+        }
+    ],
+    "destination": {
+        "name": "replicate-api",
+        "url": "https://api.replicate.com/v1/",
+        "auth_method": {
+            "type": "BEARER_TOKEN",
+            "config": {
+                "token": Config.REPLICATE_API_TOKEN,
+            },
+        },
+    },
+}
+
+replicate_api_connection = create_connection(replicate_api_queue)
+```
+
+The Connection has a `name`, a `source`, and a `destination`. The `source` also has a `name` and a `verification`. The `verification` instructs Hookdeck how to authenticate requests. Since the connection is acting as an API queue, we're using the `API_KEY` type with the `header_key` set to the value defined in `Config.HOOKDECK_QUEUE_API_KEY_HEADER_NAME` and the `api_key` value set to the generated hash stored in `replicate_api_queue_api_key`.
+
+The `rules` define a request retry strategy to use when interacting with the Replicate API. In this case, we're stating to retry up to 5 time, using an interval of `30000` milliseconds, but apply an `exponential` back off retry strategy. Also, we're using the `response_status_codes` option to inform Hookdeck to only retry on `429` and `500` HTTP responses. See the [Hookdeck Retry docs](https://hookdeck.com/docs/retries?ref=mongodb-iatt) for more information on retries and the [Hookdeck Rules](https://hookdeck.com/docs/connections?ref=mongodb-iatt#connection-rules) docs for information on other types of rules that are available.
+
+The `url` on the Destination is the base URL for the Replicate API. Hookdeck uses path forwarding by default so any path appended to the Hookdeck Source URL will also be appending to the destination URL. For example, a request to a Hookdeck Source with URL `https://hkdk.events/{id}/predictions` will result in a request to a connected Destination of `https://api.replicate.com/v1/predictions` where the Destination has a base URL of `https://api.replicate.com/v1/`. Hookdeck acts very much like a proxy in this scenario.
+
+The `auth_method` on the Destination is of type `BEARER_TOKEN` with a `config.token` set to the value of the `REPLICATE_API_TOKEN` environment variable. This allows Hookdeck to make authenticated API calls to Replicate.
+
+Now, create a Connection for the Replicate Audio webhooks to handle audio analysis callbacks:
 
 ```py
 replicate_audio = {
@@ -129,7 +183,7 @@ replicate_audio = {
     "source": {
         "name": "replicate-audio",
         "verification": {
-            "type": "SVIX",
+            "type": "REPLICATE",
             "configs": {
                 "webhook_secret_key": Config.REPLICATE_WEBHOOKS_SECRET,
             },
@@ -153,13 +207,13 @@ replicate_audio = {
 replicate_audio_connection = create_connection(replicate_audio)
 ```
 
-The Connection has a `name`, a `source`, and a `destination`. The `source` also has a `name` and a `verification` with a `webhook_secret_key` value set from the `REPLICATE_WEBHOOKS_SECRET` value we stored in the `.env` file. This enables and instructs Hookdeck to verify that the webhook has come from Replicate.
+The Replicate Audio webhook callback connection uses a `verification` of type `REPLICATE` with a `configs.webhook_secret_key` value set from the `REPLICATE_WEBHOOKS_SECRET` value we stored in the `.env` file. This enables and instructs Hookdeck to verify that the webhook has come from Replicate.
 
-The `rules` define a delivery retry strategy to follow if any requests to our application's webhook endpoint fail. In this case, we're stating to retry up to 5 time, using an interval of `30000` milliseconds, but apply an `exponential` back off retry strategy. Also, we're using the `response_status_codes` option to inform Hookdeck to not retry if it receives a `404` response. See the [Hookdeck Retry docs](https://hookdeck.com/docs/retries?ref=mongodb-iatt) for more information on retires and the [Hookdeck Rules](https://hookdeck.com/docs/connections?ref=mongodb-iatt#connection-rules) docs for information on other types of rules that are available.
+The `rules` for this inbound Connection are similar to the outbound connection and define a delivery retry strategy to follow if any requests to our application's webhook endpoint fail. The only difference is the `response_status_codes` informs Hookdeck not retry if it receives a `200` or `404` response.
 
 The `destination` has a `name` and a `cli_path` that informs Hookdeck that the Destination is the Hookdeck CLI and the path that the request should be forwarded to is `/webhooks/audio`.
 
-Next, create a connection for "replicate-embedding" to handle embedding generation callbacks:
+Next, create a connection for Replicate Embeddings webhook callbacks:
 
 ```py
 replicate_embedding = {
@@ -167,7 +221,7 @@ replicate_embedding = {
     "source": {
         "name": "replicate-embedding",
         "verification": {
-            "type": "SVIX",
+            "type": "REPLICATE",
             "configs": {
                 "webhook_secret_key": Config.REPLICATE_WEBHOOKS_SECRET,
             },
@@ -179,7 +233,7 @@ replicate_embedding = {
             "count": 5,
             "interval": 30000,
             "strategy": "exponential",
-            "response_status_codes": ["!404"],
+            "response_status_codes": ["!200", "!404"],
         }
     ],
     "destination": {
@@ -191,17 +245,28 @@ replicate_embedding = {
 replicate_embedding_connection = create_connection(replicate_embedding)
 ```
 
-Finally, update the `.env` file with the new webhook URLs obtained from the API responses:
+Finally, update the `.env` file with some of the generated values:
 
 ```py
 # Update .env
 with open(".env", "r") as file:
     env_content = file.read()
 
+replicate_api_connection_url = replicate_api_connection["source"]["url"]
 audio_webhook_url = replicate_audio_connection["source"]["url"]
 embedding_webhook_url = replicate_embedding_connection["source"]["url"]
 
-# Replace the webhooks URLs in the .env content
+# Replace the .env URLs in the .env content
+env_content = re.sub(
+    r"HOOKDECK_REPLICATE_API_QUEUE_API_KEY=.*",
+    f"HOOKDECK_REPLICATE_API_QUEUE_API_KEY={replicate_api_queue_api_key}",
+    env_content,
+)
+env_content = re.sub(
+    r"HOOKDECK_REPLICATE_API_QUEUE_URL=.*",
+    f"HOOKDECK_REPLICATE_API_QUEUE_URL={replicate_api_connection_url}",
+    env_content,
+)
 env_content = re.sub(
     r"AUDIO_WEBHOOK_URL=.*", f"AUDIO_WEBHOOK_URL={audio_webhook_url}", env_content
 )
@@ -213,9 +278,11 @@ env_content = re.sub(
 
 with open(".env", "w") as file:
     file.write(env_content)
+
+print("Connections created successfully!")
 ```
 
-This code reads the current `.env` content, replaces the existing `AUDIO_WEBHOOK_URL` and `EMBEDDINGS_WEBHOOK_URL` using regular expressions, and writes the updated content back to the `.env` file. This ensures that the environment variables for the webhook URLs are up-to-date.
+This code reads the current `.env` content, replaces the lines with existing environmental variable placeholders using regular expressions, and writes the updated content back to the `.env` file. This ensures that the environment variables such as the webhook URLs are up-to-date.
 
 Run the script:
 
@@ -223,7 +290,7 @@ Run the script:
 poetry run python create-hookdeck-connections.py
 ```
 
-Check your `.env` file to ensure the `...WEBHOOK_URL` values are populated.
+Check your `.env` file to ensure all values are populated.
 
 Also, navigate to the **Connections** section of the Hookdeck dashboard and check the visual representation of your connection.
 
@@ -258,6 +325,7 @@ With the collection created, define a function to create or update search indexe
 ```py
 def create_or_update_search_index(index_name, index_definition, index_type):
     indexes = list(collection.list_search_indexes(index_name))
+
     if len(indexes) == 0:
         print(f'Creating search index: "{index_name}"')
         index_model = SearchIndexModel(
@@ -265,16 +333,14 @@ def create_or_update_search_index(index_name, index_definition, index_type):
             name=index_name,
             type=index_type,
         )
-        result = collection.create_search_index(model=index_model)
+        collection.create_search_index(model=index_model)
+
     else:
         print(f'Search index "{index_name}" already exists. Updating.')
-        result = collection.update_search_index(
-            name=index_name, definition=index_definition
-        )
-    return result
+        collection.update_search_index(name=index_name, definition=index_definition)
 ```
 
-This function checks if an index with the given name (`index_name`) already exists. If it does not exist, it creates a new search index using the provided definition and type. If it exists, it updates the existing index with the new definition.
+This function checks if an index with the given `index_name` already exists. If it does not exist, it creates a new search index using the provided definition and type. If it exists, it updates the existing index with the new definition.
 
 Now, create a vector search index for embeddings:
 
@@ -297,15 +363,15 @@ vector_result = create_or_update_search_index(
 
 This creates or updates a vector search index named "vector_index" for the `embedding` field.
 
-Finally, create a search index for the fields `replicate_process_id` and `replicate_embedding_id` because they are used when looking up documents when handling webhook results from Replicate:
+Finally, create a search index for the `url` field as this is used to determine if a URL has already been indexed:
 
 ```py
 create_or_update_search_index(
-    "replicate_process_id_index",
+    "url_index",
     {
         "mappings": {
             "fields": {
-                "replicate_process_id": {
+                "url": {
                     "type": "string",
                 },
             },
@@ -314,19 +380,7 @@ create_or_update_search_index(
     "search",
 )
 
-create_or_update_search_index(
-    "replicate_embedding_id_index",
-    {
-        "mappings": {
-            "fields": {
-                "replicate_embedding_id": {
-                    "type": "string",
-                },
-            },
-        }
-    },
-    "search",
-)
+print("Indexes created successfully!")
 ```
 
 Run the script:
@@ -353,7 +407,7 @@ In a second terminal window, create a localtunnel using the Hookdeck CLI:
 hookdeck listen 5000 '*'
 ```
 
-This command listens to all Hookdeck Sources, routing webhooks to the application running locally on port 5000.
+This command listens to all Hookdeck Sources connected to a CLI Destination, routing webhooks to the application running locally on port 5000.
 
 When you run the command you will see output similar to the following:
 
@@ -394,9 +448,14 @@ First, define the `/process` route in `app.py`:
 @app.route("/process", methods=["POST"])
 def process():
     url = request.form["url"]
+
+    parsed_url = urlparse(url)
+    if not all([parsed_url.scheme, parsed_url.netloc]):
+        flash("Invalid URL")
+        return redirect(url_for("index"))
 ```
 
-This route handles the `POST` request to the `/process` endpoint and retrieves the URL from the form data submitted by the user.
+This route handles the `POST` request to the `/process` endpoint and retrieves the URL from the form data submitted by the user. It validates the URL and redirects to the index page with an error message if it's not.
 
 Next, check if the URL already exists in the database:
 
@@ -468,7 +527,7 @@ In this case, the file is an MP3 the `content_type` is `audio/mpeg`, so return a
 Insert the URL, along with its content type and length, into the database with a status of `SUBMITTED`:
 
 ```py
-    collection.insert_one(
+    asset = collection.insert_one(
         {
             "url": url,
             "content_type": content_type,
@@ -481,31 +540,33 @@ Insert the URL, along with its content type and length, into the database with a
 Process the URL using the asset processor, an `AudioProcessor`, and obtain the prediction results:
 
 ```py
-    prediction = processor.process(url)
+    try:
+        response = processor.process(asset.inserted_id, url)
+    except Exception as e:
+        app.logger.error("Error processing asset: %s", e)
+        collection.update_one(
+            filter={"url": url},
+            update={
+                "$set": {
+                    "status": "PROCESSING_ERROR",
+                    "error": str(e),
+                }
+            },
+        )
+        flash("Error processing asset")
+        return redirect(url_for("index"))
 ```
 
-Let's look at the `AudioProcessor` from `allthethings/processors.py` in more detail to understand what this does.
+Let's look at the `AudioProcessor` from `allthethings/processors.py` in more detail to understand what this does:
 
 ```py
-import replicate
-
+import httpx
 from config import Config
 
+...
+
 class AudioProcessor:
-    def __init__(self):
-        self.WEBHOOK_URL = Config.AUDIO_WEBHOOK_URL
-        self.model = replicate.models.get("openai/whisper")
-        self.version = self.model.versions.get(
-            "cdd97b257f93cb89dede1c7584e3f3dfc969571b357dbcee08e793740bedd854"
-        )
-```
-
-This class initializes the audio processor with the `AUDIO_WEBHOOK_URL` and the specific version of the [OpenAI Whisper model](https://replicate.com/openai/whisper) that converts speech to text using the [Replicate Python SDK](https://github.com/replicate/replicate-python).
-
-Next, define the `process` method within the `AudioProcessor` class:
-
-```py
-    def process(self, url):
+    def process(self, id, url):
         input = {
             "audio": url,
             "model": "large-v3",
@@ -521,17 +582,30 @@ Next, define the `process` method within the `AudioProcessor` class:
             "temperature_increment_on_fallback": 0.2,
         }
 
-        prediction = replicate.predictions.create(
-            version=self.version,
-            input=input,
-            webhook=self.WEBHOOK_URL,
-            webhook_events_filter=["completed"],
+        payload = {
+            "version": "cdd97b257f93cb89dede1c7584e3f3dfc969571b357dbcee08e793740bedd854",
+            "input": input,
+            "webhook": f"{Config.AUDIO_WEBHOOK_URL}/{id}",
+            "webhook_events_filter": ["completed"],
+        }
+
+        response = httpx.request(
+            "POST",
+            f"{Config.HOOKDECK_REPLICATE_API_QUEUE_URL}/predictions",
+            headers=Config.HOOKDECK_QUEUE_AUTH_HEADERS,
+            json=payload,
         )
 
-        return prediction
+        return response.json()
 ```
 
-This method processes the audio URL by creating a prediction request to the model. The prediction request is sent to the model, and the webhook URL is provided to receive the prediction result asynchronously. The use of the `webhook_events_filter=["completed"]` filter informs Replicate to only send a webhook when the prediction is completed. Return the pending prediction result to the function caller.
+`process` method processes the audio URL by creating a prediction request passing the `payload` as the JSON body.
+
+`payload` includes `webhooks` which consists of the `Config.AUDIO_WEBHOOK_URL` with an appended path (`/{id}`) that indicates which asset the callback is for. The use of the `webhook_events_filter=["completed"]` filter informs Replicate to only send a webhook when the prediction is completed.
+
+The `payload.version` instructs Replicate to use the [OpenAI Whisper model](https://replicate.com/openai/whisper) for audio to text. The `input` includes details such as the language should be auto-detected and the transcription should be in `plain text`. 
+
+Since we're using Hookdeck as an outbound API queue, the request uses the `Config.HOOKDECK_REPLICATE_API_QUEUE_URL` with the API path `/predications` suffix. The appropriate auth headers are also used from `Config.HOOKDECK_QUEUE_AUTH_HEADERS`.
 
 Back in `app.py`, update the database with the processing status and pending prediction details:
 
@@ -541,22 +615,13 @@ Back in `app.py`, update the database with the processing status and pending pre
         update={
             "$set": {
                 "status": "PROCESSING",
-                "replicate_process_id": prediction.id,
-                "replicate_request": {
-                    "model": prediction.model,
-                    "version": prediction.version,
-                    "status": prediction.status,
-                    "input": prediction.input,
-                    "logs": prediction.logs,
-                    "created_at": prediction.created_at,
-                    "urls": prediction.urls,
-                },
+                "processor_response": response,
             }
         },
     )
 ```
 
-The `replicate_process_id` value is stored and is later used as a lookup when the predication completes. This is why we created the index for it earlier.
+The `processor_response` value is stored for debug purposes as it contains a Hookdeck request ID that can be useful.
 
 Flash a success message to the user and redirect them to the index page:
 
@@ -570,6 +635,8 @@ Flash a success message to the user and redirect them to the index page:
 ```
 
 At this point, the Flask application has offloaded all the work to Replicate and, from a data journey perspective, we're waiting for the predication completed webhook.
+
+<!-- Up to here with 1st draft review -->
 
 ### H3: Handle Prediction Completion Webhook
 

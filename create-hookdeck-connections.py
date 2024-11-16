@@ -47,7 +47,7 @@ replicate_api_queue = {
             "strategy": "exponential",
             "count": 5,
             "interval": 30000,
-            "response_status_codes": ["!404", "!200"],
+            "response_status_codes": ["429", "500"],
         }
     ],
     "destination": {
@@ -82,7 +82,7 @@ replicate_audio = {
             "strategy": "exponential",
             "count": 5,
             "interval": 30000,
-            "response_status_codes": ["!404", "!200"],
+            "response_status_codes": ["!200", "!404"],
         }
     ],
     "destination": {
@@ -111,7 +111,7 @@ replicate_embedding = {
             "strategy": "exponential",
             "count": 5,
             "interval": 30000,
-            "response_status_codes": ["!404", "!200"],
+            "response_status_codes": ["!200", "!404"],
         }
     ],
     "destination": {

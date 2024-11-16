@@ -172,7 +172,11 @@ def request_embeddings(id):
 
     generator = AsyncEmbeddingsGenerator()
 
-    response = generator.generate(id, asset["text"])
+    try:
+        response = generator.generate(id, asset["text"])
+    except Exception as e:
+        app.logger.error("Error generating embeddings for %s: %s", id, e)
+        raise
 
     collection.update_one(
         filter={"_id": ObjectId(id)},
