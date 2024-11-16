@@ -47,12 +47,18 @@ replicate_api_queue = {
             "strategy": "exponential",
             "count": 5,
             "interval": 30000,
-            "response_status_codes": ["!404", "200-299"],
+            "response_status_codes": ["!404", "!200"],
         }
     ],
     "destination": {
         "name": "replicate-api",
         "url": "https://api.replicate.com/v1/",
+        "auth_method": {
+            "type": "BEARER_TOKEN",
+            "config": {
+                "token": Config.REPLICATE_API_TOKEN,
+            },
+        },
     },
 }
 
@@ -76,7 +82,7 @@ replicate_audio = {
             "strategy": "exponential",
             "count": 5,
             "interval": 30000,
-            "response_status_codes": ["!404", "200-299"],
+            "response_status_codes": ["!404", "!200"],
         }
     ],
     "destination": {
@@ -105,7 +111,7 @@ replicate_embedding = {
             "strategy": "exponential",
             "count": 5,
             "interval": 30000,
-            "response_status_codes": ["!404", "200-299"],
+            "response_status_codes": ["!404", "!200"],
         }
     ],
     "destination": {

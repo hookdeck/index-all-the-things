@@ -15,8 +15,8 @@ class AsyncEmbeddingsGenerator:
         response = httpx.request(
             "POST",
             f"{Config.HOOKDECK_REPLICATE_API_QUEUE_URL}/predictions",
+            headers=Config.HOOKDECK_QUEUE_AUTH_HEADERS,
             json=payload,
-            headers=Config.REPLICATE_AUTH_HEADERS,
         )
 
         return response.json()
@@ -33,8 +33,8 @@ class SyncEmbeddingsGenerator:
         response = httpx.request(
             "POST",
             "https://api.replicate.com/v1/predictions",
+            headers={**Config.REPLICATE_API_AUTH_HEADERS, "Prefer": "wait"},
             json=payload,
-            headers={**Config.REPLICATE_AUTH_HEADERS, "Prefer": "wait"},
             timeout=60,
         )
 

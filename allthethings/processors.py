@@ -42,8 +42,8 @@ class AudioProcessor:
         response = httpx.request(
             "POST",
             f"{Config.HOOKDECK_REPLICATE_API_QUEUE_URL}/predictions",
+            headers=Config.HOOKDECK_QUEUE_AUTH_HEADERS,
             json=payload,
-            headers=Config.REPLICATE_AUTH_HEADERS,
         )
 
         return response.json()
