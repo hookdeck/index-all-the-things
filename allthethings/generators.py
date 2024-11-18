@@ -23,7 +23,6 @@ class AsyncEmbeddingsGenerator:
 
 
 class SyncEmbeddingsGenerator:
-
     def generate(self, text):
         payload = {
             "version": "b6b7585c9640cd7a9572c6e129c9549d79c9c31f0d3fdce7baac7c67ca38f305",
@@ -35,7 +34,7 @@ class SyncEmbeddingsGenerator:
             "https://api.replicate.com/v1/predictions",
             headers={**Config.REPLICATE_API_AUTH_HEADERS, "Prefer": "wait"},
             json=payload,
-            timeout=60,
+            timeout=180,
         )
 
         return response.json()

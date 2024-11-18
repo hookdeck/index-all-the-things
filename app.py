@@ -1,12 +1,16 @@
 import httpx
 from urllib.parse import urlparse
 from bson import ObjectId
+import hmac
+import hashlib
+import base64
 from flask import Flask, jsonify, request, render_template, redirect, url_for, flash
 
 from config import Config
 
 from allthethings.mongo import Database
 from allthethings.processors import get_asset_processor
+
 from allthethings.generators import (
     AsyncEmbeddingsGenerator,
     SyncEmbeddingsGenerator,
@@ -136,17 +140,18 @@ def process():
 
 @app.route("/search", methods=["GET"])
 def search():
-    return render_template("search.html", results=[])
-
-
-@app.route("/search", methods=["POST"])
-def search_post():
-    query = request.form["query"]
+    query = request.args.get("query")
+    if query is None:
+        return render_template("search.html", results=[])
 
     app.logger.info("Query submitted")
     app.logger.debug(query)
 
     results = query_vector_search(query)
+
+    if results is None:
+        flash("Search embeddings generation failed")
+        return redirect(url_for("search"))
 
     results = format_results(results)
 
@@ -194,8 +199,17 @@ def query_vector_search(q):
     # Because the search is user-driven, we use the synchronous generator
     generator = SyncEmbeddingsGenerator()
 
-    generator_response = generator.generate(q)
-    app.logger.debug(generator_response)
+    try:
+        generator_response = generator.generate(q)
+        app.logger.debug(generator_response)
+    except Exception as e:
+        app.logger.error("Error generating embeddings: %s", e)
+        return None
+
+    if generator_response["output"] is None:
+        app.logger.debug("Embeddings generation timed out")
+        return None
+
     query_embedding = generator_response["output"][0]["embedding"]
 
     app.logger.info("Query embedding generated")
@@ -205,8 +219,8 @@ def query_vector_search(q):
         "index": "vector_index",
         "path": "embedding",
         "queryVector": query_embedding,
-        "numCandidates": 10,
-        "limit": 2,
+        "numCandidates": 100,
+        "limit": 10,
     }
 
     new_search_query = {"$vectorSearch": vs_query}
@@ -235,8 +249,30 @@ def query_vector_search(q):
     return res
 
 
+def verify_webhook(request):
+    if Config.HOOKDECK_WEBHOOK_SECRET is None:
+        app.logger.error("No HOOKDECK_WEBHOOK_SECRET found.")
+        return False
+
+    hmac_header = request.headers.get("x-hookdeck-signature")
+
+    hash = base64.b64encode(
+        hmac.new(
+            Config.HOOKDECK_WEBHOOK_SECRET.encode(), request.data, hashlib.sha256
+        ).digest()
+    ).decode()
+
+    verified = hash == hmac_header
+    app.logger.debug("Webhook signature verification: %s", verified)
+    return verified
+
+
 @app.route("/webhooks/audio/<id>", methods=["POST"])
 def webhook_audio(id):
+    if not verify_webhook(request):
+        app.logger.error("Webhook signature verification failed")
+        return jsonify({"error": "Webhook signature verification failed"}), 401
+
     payload = request.json
     app.logger.info("Audio payload received for id %s", id)
     app.logger.debug(payload)
@@ -267,13 +303,17 @@ def webhook_audio(id):
     app.logger.info("Transcription updated")
     app.logger.debug(result)
 
-    request_embeddings(result["_id"])
+    request_embeddings(id)
 
     return "OK"
 
 
 @app.route("/webhooks/embedding/<id>", methods=["POST"])
 def webhook_embeddings(id):
+    if not verify_webhook(request):
+        app.logger.error("Webhook signature verification failed")
+        return jsonify({"error": "Webhook signature verification failed"}), 401
+
     payload = request.json
     app.logger.info("Embeddings payload recieved")
     app.logger.debug(payload)

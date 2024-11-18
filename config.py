@@ -11,6 +11,7 @@ class Config:
     DB_NAME = "iaat"
     COLLECTION_NAME = "assets"
 
+    HOOKDECK_WEBHOOK_SECRET = os.getenv("HOOKDECK_WEBHOOK_SECRET")
     HOOKDECK_QUEUE_API_KEY_HEADER_NAME = "x-iaat-queue-api-key"
     HOOKDECK_REPLICATE_API_QUEUE_API_KEY = os.getenv(
         "HOOKDECK_REPLICATE_API_QUEUE_API_KEY"
