@@ -94,7 +94,7 @@ poetry run python -m flask --app app --debug run
 Create localtunnels to receive webhooks from the two Hookdeck Connections:
 
 ```sh
-hookdeck listen '*' 5000
+hookdeck listen 5000 '*'
 ```
 
 Navigate to `localhost:5000` within your web browser.

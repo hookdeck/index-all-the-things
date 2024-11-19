@@ -1,11 +1,16 @@
-import urllib
+import httpx
 from urllib.parse import urlparse
+from bson import ObjectId
+import hmac
+import hashlib
+import base64
 from flask import Flask, jsonify, request, render_template, redirect, url_for, flash
 
 from config import Config
 
 from allthethings.mongo import Database
 from allthethings.processors import get_asset_processor
+
 from allthethings.generators import (
     AsyncEmbeddingsGenerator,
     SyncEmbeddingsGenerator,
@@ -49,31 +54,14 @@ def index():
     return render_template("home.html", indexes=results)
 
 
-@app.route("/search", methods=["GET"])
-def search():
-    return render_template("search.html", results=[])
-
-
-@app.route("/search", methods=["POST"])
-def search_post():
-    query = request.form["query"]
-
-    app.logger.info("Query submitted")
-    app.logger.debug(query)
-
-    results = query_vector_search(query)
-
-    results = format_results(results)
-
-    # TODO: look into warning logged here
-    app.logger.debug("Formatted search results", results)
-
-    return render_template("search.html", results=results, query=query)
-
-
 @app.route("/process", methods=["POST"])
 def process():
     url = request.form["url"]
+
+    parsed_url = urlparse(url)
+    if not all([parsed_url.scheme, parsed_url.netloc]):
+        flash("Invalid URL")
+        return redirect(url_for("index"))
 
     database = Database()
     collection = database.get_collection()
@@ -85,15 +73,21 @@ def process():
 
     # Only do a HEAD request to avoid downloading the whole file
     # This offloads the file downloading Replicate
-    req = urllib.request.Request(url, method="HEAD")
-    fetch = urllib.request.urlopen(req)
+    response = httpx.request("HEAD", url)
 
-    if fetch.status != 200:
+    if response.status_code != 200:
         flash("URL is not reachable")
         return redirect(url_for("index"))
 
-    content_length = fetch.headers["Content-Length"]
-    content_type = fetch.headers["Content-Type"]
+    content_length = response.headers["Content-Length"]
+    content_type = response.headers["Content-Type"]
+
+    app.logger.debug(
+        "Processing URL: %s, Content-Type: %s, Content-Length: %s",
+        url,
+        content_type,
+        content_length,
+    )
 
     processor = get_asset_processor(content_type)
 
@@ -101,7 +95,7 @@ def process():
         flash('Unsupported content type "' + content_type + '"')
         return redirect(url_for("index"))
 
-    collection.insert_one(
+    asset = collection.insert_one(
         {
             "url": url,
             "content_type": content_type,
@@ -110,23 +104,28 @@ def process():
         }
     )
 
-    prediction = processor.process(url)
+    try:
+        response = processor.process(asset.inserted_id, url)
+    except Exception as e:
+        app.logger.error("Error processing asset: %s", e)
+        collection.update_one(
+            filter={"url": url},
+            update={
+                "$set": {
+                    "status": "PROCESSING_ERROR",
+                    "error": str(e),
+                }
+            },
+        )
+        flash("Error processing asset")
+        return redirect(url_for("index"))
 
     collection.update_one(
         filter={"url": url},
         update={
             "$set": {
                 "status": "PROCESSING",
-                "replicate_process_id": prediction.id,
-                "replicate_request": {
-                    "model": prediction.model,
-                    "version": prediction.version,
-                    "status": prediction.status,
-                    "input": prediction.input,
-                    "logs": prediction.logs,
-                    "created_at": prediction.created_at,
-                    "urls": prediction.urls,
-                },
+                "processor_response": response,
             }
         },
     )
@@ -139,13 +138,36 @@ def process():
     return redirect(url_for("index"))
 
 
+@app.route("/search", methods=["GET"])
+def search():
+    query = request.args.get("query")
+    if query is None:
+        return render_template("search.html", results=[])
+
+    app.logger.info("Query submitted")
+    app.logger.debug(query)
+
+    results = query_vector_search(query)
+
+    if results is None:
+        flash("Search embeddings generation failed")
+        return redirect(url_for("search"))
+
+    results = format_results(results)
+
+    # TODO: look into warning logged here
+    app.logger.debug("Formatted search results", results)
+
+    return render_template("search.html", results=results, query=query)
+
+
 def request_embeddings(id):
     app.logger.info("Requesting embeddings for %s", id)
 
     database = Database()
     collection = database.get_collection()
 
-    asset = collection.find_one({"_id": id})
+    asset = collection.find_one({"_id": ObjectId(id)})
 
     if asset is None:
         raise RuntimeError("Asset not found")
@@ -155,41 +177,51 @@ def request_embeddings(id):
 
     generator = AsyncEmbeddingsGenerator()
 
-    generate_request = generator.generate(asset["text"])
+    try:
+        response = generator.generate(id, asset["text"])
+    except Exception as e:
+        app.logger.error("Error generating embeddings for %s: %s", id, e)
+        raise
 
     collection.update_one(
-        filter={"_id": id},
+        filter={"_id": ObjectId(id)},
         update={
             "$set": {
                 "status": "GENERATING_EMBEDDINGS",
-                "replicate_embedding_id": generate_request.id,
+                "generator_response": response,
             }
         },
     )
 
 
 # Inspiration https://www.mongodb.com/developer/products/atlas/how-use-cohere-embeddings-rerank-modules-mongodb-atlas/#query-mongodb-vector-index-using--vectorsearch
-def query_vector_search(q, prefilter={}, postfilter={}, path="embedding", topK=2):
+def query_vector_search(q):
     # Because the search is user-driven, we use the synchronous generator
     generator = SyncEmbeddingsGenerator()
 
-    generate_response = generator.generate(q)
+    try:
+        generator_response = generator.generate(q)
+        app.logger.debug(generator_response)
+    except Exception as e:
+        app.logger.error("Error generating embeddings: %s", e)
+        return None
 
-    query_embedding = generate_response[0]["embedding"]
+    if generator_response["output"] is None:
+        app.logger.debug("Embeddings generation timed out")
+        return None
+
+    query_embedding = generator_response["output"][0]["embedding"]
 
     app.logger.info("Query embedding generated")
     app.logger.debug(query_embedding)
 
     vs_query = {
         "index": "vector_index",
-        "path": path,
+        "path": "embedding",
         "queryVector": query_embedding,
-        "numCandidates": 10,
-        "limit": topK,
+        "numCandidates": 100,
+        "limit": 10,
     }
-    if len(prefilter) > 0:
-        app.logger.info("Creating vector search query with pre filter")
-        vs_query["filter"] = prefilter
 
     new_search_query = {"$vectorSearch": vs_query}
 
@@ -210,23 +242,39 @@ def query_vector_search(q, prefilter={}, postfilter={}, path="embedding", topK=2
     database = Database()
     collection = database.get_collection()
 
-    if len(postfilter.keys()) > 0:
-        app.logger.info("Vector search query with post filter")
-        postFilter = {"$match": postfilter}
-        res = list(collection.aggregate([new_search_query, project, postFilter]))
-    else:
-        app.logger.info("Vector search query without post filter")
-        res = list(collection.aggregate([new_search_query, project]))
+    res = list(collection.aggregate([new_search_query, project]))
 
     app.logger.info("Vector search query run")
     app.logger.debug(res)
     return res
 
 
-@app.route("/webhooks/audio", methods=["POST"])
-def webhook_audio():
+def verify_webhook(request):
+    if Config.HOOKDECK_WEBHOOK_SECRET is None:
+        app.logger.error("No HOOKDECK_WEBHOOK_SECRET found.")
+        return False
+
+    hmac_header = request.headers.get("x-hookdeck-signature")
+
+    hash = base64.b64encode(
+        hmac.new(
+            Config.HOOKDECK_WEBHOOK_SECRET.encode(), request.data, hashlib.sha256
+        ).digest()
+    ).decode()
+
+    verified = hash == hmac_header
+    app.logger.debug("Webhook signature verification: %s", verified)
+    return verified
+
+
+@app.route("/webhooks/audio/<id>", methods=["POST"])
+def webhook_audio(id):
+    if not verify_webhook(request):
+        app.logger.error("Webhook signature verification failed")
+        return jsonify({"error": "Webhook signature verification failed"}), 401
+
     payload = request.json
-    app.logger.info("Audio payload recieved")
+    app.logger.info("Audio payload received for id %s", id)
     app.logger.debug(payload)
 
     database = Database()
@@ -237,7 +285,7 @@ def webhook_audio():
     )
 
     result = collection.find_one_and_update(
-        filter={"replicate_process_id": payload["id"]},
+        filter={"_id": ObjectId(id)},
         update={
             "$set": {
                 "status": status,
@@ -249,21 +297,23 @@ def webhook_audio():
     )
 
     if result is None:
-        app.logger.error(
-            "No document found for id %s to add audio transcript", payload["id"]
-        )
-        return jsonify({"error": "No document found to add audio transcript"}), 500
+        app.logger.error("No document found for id %s to add audio transcript", id)
+        return jsonify({"error": "No document found to add audio transcript"}), 404
 
     app.logger.info("Transcription updated")
     app.logger.debug(result)
 
-    request_embeddings(result["_id"])
+    request_embeddings(id)
 
     return "OK"
 
 
-@app.route("/webhooks/embedding", methods=["POST"])
-def webhook_embeddings():
+@app.route("/webhooks/embedding/<id>", methods=["POST"])
+def webhook_embeddings(id):
+    if not verify_webhook(request):
+        app.logger.error("Webhook signature verification failed")
+        return jsonify({"error": "Webhook signature verification failed"}), 401
+
     payload = request.json
     app.logger.info("Embeddings payload recieved")
     app.logger.debug(payload)
@@ -278,7 +328,7 @@ def webhook_embeddings():
     collection = database.get_collection()
 
     result = collection.update_one(
-        filter={"replicate_embedding_id": payload["id"]},
+        filter={"_id": ObjectId(id)},
         update={
             "$set": {
                 "status": status,
@@ -292,6 +342,6 @@ def webhook_embeddings():
         app.logger.error(
             "No document found for id %s to update embedding", payload["id"]
         )
-        return jsonify({"error": "No document found to update embedding"}), 500
+        return jsonify({"error": "No document found to update embedding"}), 404
 
     return "OK"

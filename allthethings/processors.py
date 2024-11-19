@@ -1,5 +1,4 @@
-import replicate
-
+import httpx
 from config import Config
 
 
@@ -17,14 +16,7 @@ def get_asset_processor(
 
 
 class AudioProcessor:
-    def __init__(self):
-        self.WEBHOOK_URL = Config.AUDIO_WEBHOOK_URL
-        self.model = replicate.models.get("openai/whisper")
-        self.version = self.model.versions.get(
-            "cdd97b257f93cb89dede1c7584e3f3dfc969571b357dbcee08e793740bedd854"
-        )
-
-    def process(self, url):
+    def process(self, id, url):
         input = {
             "audio": url,
             "model": "large-v3",
@@ -40,11 +32,18 @@ class AudioProcessor:
             "temperature_increment_on_fallback": 0.2,
         }
 
-        prediction = replicate.predictions.create(
-            version=self.version,
-            input=input,
-            webhook=self.WEBHOOK_URL,
-            webhook_events_filter=["completed"],
+        payload = {
+            "version": "cdd97b257f93cb89dede1c7584e3f3dfc969571b357dbcee08e793740bedd854",
+            "input": input,
+            "webhook": f"{Config.AUDIO_WEBHOOK_URL}/{id}",
+            "webhook_events_filter": ["completed"],
+        }
+
+        response = httpx.request(
+            "POST",
+            f"{Config.HOOKDECK_REPLICATE_API_QUEUE_URL}/predictions",
+            headers=Config.HOOKDECK_QUEUE_AUTH_HEADERS,
+            json=payload,
         )
 
-        return prediction
+        return response.json()
