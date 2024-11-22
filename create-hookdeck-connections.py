@@ -15,7 +15,7 @@ headers = {
 def create_connection(payload):
     response = httpx.request(
         "PUT",
-        "https://api.hookdeck.com/latest/connections",
+        "https://api.hookdeck.com/2024-09-01/connections",
         headers=headers,
         json=payload,
     )
