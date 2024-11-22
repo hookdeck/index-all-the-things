@@ -69,12 +69,12 @@ replicate_audio = {
     "name": "replicate-audio",
     "source": {
         "name": "replicate-audio",
-        # "verification": {
-        #     "type": "REPLICATE",
-        #     "configs": {
-        #         "webhook_secret_key": Config.REPLICATE_WEBHOOKS_SECRET,
-        #     },
-        # },
+        "verification": {
+            "type": "REPLICATE",
+            "configs": {
+                "webhook_secret_key": Config.REPLICATE_WEBHOOKS_SECRET,
+            },
+        },
     },
     "rules": [
         {
@@ -98,12 +98,12 @@ replicate_embedding = {
     "name": "replicate-embedding",
     "source": {
         "name": "replicate-embedding",
-        # "verification": {
-        #     "type": "REPLICATE",
-        #     "configs": {
-        #         "webhook_secret_key": Config.REPLICATE_WEBHOOKS_SECRET,
-        #     },
-        # },
+        "verification": {
+            "type": "REPLICATE",
+            "configs": {
+                "webhook_secret_key": Config.REPLICATE_WEBHOOKS_SECRET,
+            },
+        },
     },
     "rules": [
         {
